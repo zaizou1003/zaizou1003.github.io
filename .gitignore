@@ -1,0 +1,41 @@
+
+# ✅ Ignore Node.js dependencies
+node_modules/
+dependencies/
+
+# ✅ Ignore package manager lock files (should only commit one: `package-lock.json` or `yarn.lock`)
+package-lock.json
+yarn.lock
+.pnp
+.pnp.js
+
+# ✅ Ignore build output
+/dist
+
+# ✅ Ignore testing & coverage reports
+/coverage
+App.test.js
+setupTests.js
+reportWebVitals.js
+
+# ✅ Ignore sensitive environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# ✅ Ignore editor & system files
+.DS_Store  # macOS Finder metadata
+Thumbs.db  # Windows thumbnail cache
+.vscode/   # VSCode settings
+
+# ✅ Ignore logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ✅ Ignore generated models, images, and utilities
+images/
+utils/
+models/
