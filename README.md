@@ -74,6 +74,4 @@ Welcome to **MyMind**, the dynamic portfolio website of **Ahmed**. This portfoli
 ✅ The portfolio is **optimized for all screen sizes**.  
 ✅ Works **smoothly across desktops, tablets, and mobile devices**.
 
----
 
->>>>>>> 8e1f395 (Deploy portfolio website)
