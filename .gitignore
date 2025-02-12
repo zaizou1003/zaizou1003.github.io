@@ -10,7 +10,6 @@ yarn.lock
 .pnp.js
 
 # ✅ Ignore build output
-/build
 /dist
 
 # ✅ Ignore testing & coverage reports
