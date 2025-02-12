@@ -1,6 +1,4 @@
-<<<<<<< HEAD
-# zaizou1003.github.io
-=======
+
 # 🧠 MyMind – Ahmed's Portfolio
 
 Welcome to **MyMind**, the dynamic portfolio website of **Ahmed**. This portfolio showcases my **work, skills, and achievements**, built with **ReactJS** and **Tailwind CSS**. It offers a **seamless, interactive experience** optimized for both desktop and mobile users.
