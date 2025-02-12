@@ -1,28 +1,28 @@
 {
   "files": {
-    "main.css": "/static/css/main.bf538fe7.css",
-    "main.js": "/static/js/main.b2bba3b9.js",
-    "static/js/843.71228485.chunk.js": "/static/js/843.71228485.chunk.js",
-    "static/js/285.6c3989a2.chunk.js": "/static/js/285.6c3989a2.chunk.js",
-    "static/media/ViewAllCardImg.png": "/static/media/ViewAllCardImg.477c80761bfda54cfdf7.png",
-    "static/media/profile_pic-2.png": "/static/media/profile_pic-2.f4034fe5152af4e36973.png",
-    "static/media/MyLogo.png": "/static/media/MyLogo.087c2801e05ac1c5e8b0.png",
-    "static/media/Ecommerce.png": "/static/media/Ecommerce.c3e8f05912f165297fdb.png",
-    "static/media/cv.pdf": "/static/media/cv.adf83312dbb69d444dcf.pdf",
-    "static/media/dash.png": "/static/media/dash.d05c11a881c9bd9f4374.png",
-    "static/media/profile_pic-1.jpg": "/static/media/profile_pic-1.a51b8045d6f0ddab2e10.jpg",
-    "static/media/certificate-logo.jpg": "/static/media/certificate-logo.b269033eda68d24c0945.jpg",
-    "static/media/ani.png": "/static/media/ani.71ad656f28468bb7e073.png",
-    "static/media/knife.jpg": "/static/media/knife.ae1d0c76b16b7b535fc1.jpg",
-    "static/media/lyc.png": "/static/media/lyc.bf8777062b52d5e90354.png",
-    "index.html": "/index.html",
-    "main.bf538fe7.css.map": "/static/css/main.bf538fe7.css.map",
-    "main.b2bba3b9.js.map": "/static/js/main.b2bba3b9.js.map",
-    "843.71228485.chunk.js.map": "/static/js/843.71228485.chunk.js.map",
-    "285.6c3989a2.chunk.js.map": "/static/js/285.6c3989a2.chunk.js.map"
+    "main.css": "/zaizou1003/zaizou1003.github.io/static/css/main.bf538fe7.css",
+    "main.js": "/zaizou1003/zaizou1003.github.io/static/js/main.218afecc.js",
+    "static/js/843.71228485.chunk.js": "/zaizou1003/zaizou1003.github.io/static/js/843.71228485.chunk.js",
+    "static/js/285.6c3989a2.chunk.js": "/zaizou1003/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js",
+    "static/media/ViewAllCardImg.png": "/zaizou1003/zaizou1003.github.io/static/media/ViewAllCardImg.477c80761bfda54cfdf7.png",
+    "static/media/profile_pic-2.png": "/zaizou1003/zaizou1003.github.io/static/media/profile_pic-2.f4034fe5152af4e36973.png",
+    "static/media/MyLogo.png": "/zaizou1003/zaizou1003.github.io/static/media/MyLogo.087c2801e05ac1c5e8b0.png",
+    "static/media/Ecommerce.png": "/zaizou1003/zaizou1003.github.io/static/media/Ecommerce.c3e8f05912f165297fdb.png",
+    "static/media/cv.pdf": "/zaizou1003/zaizou1003.github.io/static/media/cv.adf83312dbb69d444dcf.pdf",
+    "static/media/dash.png": "/zaizou1003/zaizou1003.github.io/static/media/dash.d05c11a881c9bd9f4374.png",
+    "static/media/profile_pic-1.jpg": "/zaizou1003/zaizou1003.github.io/static/media/profile_pic-1.a51b8045d6f0ddab2e10.jpg",
+    "static/media/certificate-logo.jpg": "/zaizou1003/zaizou1003.github.io/static/media/certificate-logo.b269033eda68d24c0945.jpg",
+    "static/media/ani.png": "/zaizou1003/zaizou1003.github.io/static/media/ani.71ad656f28468bb7e073.png",
+    "static/media/knife.jpg": "/zaizou1003/zaizou1003.github.io/static/media/knife.ae1d0c76b16b7b535fc1.jpg",
+    "static/media/lyc.png": "/zaizou1003/zaizou1003.github.io/static/media/lyc.bf8777062b52d5e90354.png",
+    "index.html": "/zaizou1003/zaizou1003.github.io/index.html",
+    "main.bf538fe7.css.map": "/zaizou1003/zaizou1003.github.io/static/css/main.bf538fe7.css.map",
+    "main.218afecc.js.map": "/zaizou1003/zaizou1003.github.io/static/js/main.218afecc.js.map",
+    "843.71228485.chunk.js.map": "/zaizou1003/zaizou1003.github.io/static/js/843.71228485.chunk.js.map",
+    "285.6c3989a2.chunk.js.map": "/zaizou1003/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.bf538fe7.css",
-    "static/js/main.b2bba3b9.js"
+    "static/js/main.218afecc.js"
   ]
 }
