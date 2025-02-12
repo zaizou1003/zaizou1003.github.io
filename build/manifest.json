@@ -1,0 +1,49 @@
+{
+  "name": "My Mind - Ahmed Aziz Ben Aissa Portfolio",
+  "short_name": "Ahmed Portfolio",
+  "start_url": "/portfolio-react/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "id": "Ahmed-Aziz-Ben-Aissa",
+  "lang": "en-US,fr-France",
+  "description": "MyMind - Ahmed Aziz Ben Aissa's Portfolio, showcasing projects in AI, Machine Learning, Data Visualization, and Web Development.",
+  "icons": [
+    {
+      "src": "Icons/MyLogo-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-256x256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-300x300.png",
+      "sizes": "300x300",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-350x350.png",
+      "sizes": "350x350",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png"
+    },
+    {
+      "src": "Icons/MyLogo-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

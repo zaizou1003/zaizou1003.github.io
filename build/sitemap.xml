@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <!-- Homepage -->
+  <url>
+    <loc>https://ahmedaziz.github.io/portfolio-react/</loc>
+    <lastmod>2025-02-08</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+
+    <!-- Wildlife Recognition  | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/wildlife-recognition.jpg</image:loc>
+      <image:title>Wildlife Recognition | Ahmed Aziz Ben Aissa | Projects</image:title>
+      <image:caption>Wildlife Recognition - Ahmed Aziz Ben Aissa</image:caption>
+    </image:image>
+
+    <!-- >Knife Detection -Ahmed's Portfolio | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/knife-detection.jpg</image:loc>
+      <image:title>Knife Detection | Ahmed Aziz Ben Aissa | Projects</image:title>
+      <image:caption>Knife Detection - Ahmed Aziz Ben Aissa</image:caption>
+    </image:image>
+  </url>
+
+  <!-- AllProjects page -->
+  <url>
+    <loc>https://ahmedaziz.github.io/portfolio-react/#/AllProjects</loc>
+    <lastmod>2025-02-08</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+
+    <!-- Wildlife Recognition  | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/wildlife-recognition.jpg</image:loc>
+      <image:title>Wildlife Recognition | Ahmed Aziz Ben Aissa | Projects</image:title>
+      <image:caption>Wildlife Recognition - Ahmed Aziz Ben Aissa</image:caption>
+    </image:image>
+
+    <!-- >Knife Detection - Sibi's Portfolio | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/knife-detection.jpg</image:loc>
+      <image:title>Knife Detection | Ahmed Aziz Ben Aissa | Projects</image:title>
+      <image:caption>Knife Detection - Ahmed Aziz Ben Aissa</image:caption>
+    </image:image>
+
+    <!-- E-commerce Dashboard | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/ecommerce-dashboard.jpg</image:loc>
+      <image:title>E-commerce Dashboard | Ahmed Aziz Ben Aissa</image:title>
+      <image:caption>A detailed Power BI dashboard for analyzing e-commerce performance.</image:caption>
+    </image:image>
+
+    <!-- Credit Card Customer Report | Project -->
+    <image:image>
+      <image:loc>https://your-image-url.com/credit-card-dashboard.jpg</image:loc>
+      <image:title>Credit Card Customer Report Dashboard | Ahmed Aziz Ben Aissa</image:title>
+      <image:caption>A comprehensive Power BI dashboard for analyzing credit card customers.</image:caption>
+    </image:image>
+
+
+  <!-- Terms and Conditions page -->
+  <url>
+    <loc>https://ahmedaziz.github.io/portfolio-react/#/TermsandConditions</loc>
+    <lastmod>2025-02-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+</urlset>
