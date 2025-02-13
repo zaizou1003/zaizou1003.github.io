@@ -38,4 +38,3 @@ yarn-error.log*
 # ✅ Ignore generated models, images, and utilities
 images/
 utils/
-models/
