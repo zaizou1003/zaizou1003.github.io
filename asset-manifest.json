@@ -1,10 +1,11 @@
 {
   "files": {
     "main.css": "/zaizou1003.github.io/static/css/main.bf538fe7.css",
-    "main.js": "/zaizou1003.github.io/static/js/main.9ed3f980.js",
-    "static/js/843.71228485.chunk.js": "/zaizou1003.github.io/static/js/843.71228485.chunk.js",
+    "main.js": "/zaizou1003.github.io/static/js/main.c77bac73.js",
+    "static/js/843.782fec84.chunk.js": "/zaizou1003.github.io/static/js/843.782fec84.chunk.js",
     "static/js/285.6c3989a2.chunk.js": "/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js",
     "static/media/ViewAllCardImg.png": "/zaizou1003.github.io/static/media/ViewAllCardImg.477c80761bfda54cfdf7.png",
+    "static/media/certCybersecurity.png": "/zaizou1003.github.io/static/media/certCybersecurity.ec65317b82030c25c69c.png",
     "static/media/profile_pic-2.png": "/zaizou1003.github.io/static/media/profile_pic-2.f4034fe5152af4e36973.png",
     "static/media/MyLogo.png": "/zaizou1003.github.io/static/media/MyLogo.087c2801e05ac1c5e8b0.png",
     "static/media/Ecommerce.png": "/zaizou1003.github.io/static/media/Ecommerce.c3e8f05912f165297fdb.png",
@@ -17,12 +18,12 @@
     "static/media/lyc.png": "/zaizou1003.github.io/static/media/lyc.bf8777062b52d5e90354.png",
     "index.html": "/zaizou1003.github.io/index.html",
     "main.bf538fe7.css.map": "/zaizou1003.github.io/static/css/main.bf538fe7.css.map",
-    "main.9ed3f980.js.map": "/zaizou1003.github.io/static/js/main.9ed3f980.js.map",
-    "843.71228485.chunk.js.map": "/zaizou1003.github.io/static/js/843.71228485.chunk.js.map",
+    "main.c77bac73.js.map": "/zaizou1003.github.io/static/js/main.c77bac73.js.map",
+    "843.782fec84.chunk.js.map": "/zaizou1003.github.io/static/js/843.782fec84.chunk.js.map",
     "285.6c3989a2.chunk.js.map": "/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.bf538fe7.css",
-    "static/js/main.9ed3f980.js"
+    "static/js/main.c77bac73.js"
   ]
 }
