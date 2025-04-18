@@ -1,29 +1,34 @@
 {
   "files": {
     "main.css": "/zaizou1003.github.io/static/css/main.bf538fe7.css",
-    "main.js": "/zaizou1003.github.io/static/js/main.c77bac73.js",
-    "static/js/843.782fec84.chunk.js": "/zaizou1003.github.io/static/js/843.782fec84.chunk.js",
+    "main.js": "/zaizou1003.github.io/static/js/main.42995b8c.js",
+    "static/js/843.285bc0bf.chunk.js": "/zaizou1003.github.io/static/js/843.285bc0bf.chunk.js",
     "static/js/285.6c3989a2.chunk.js": "/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js",
     "static/media/ViewAllCardImg.png": "/zaizou1003.github.io/static/media/ViewAllCardImg.477c80761bfda54cfdf7.png",
+    "static/media/cert_con.png": "/zaizou1003.github.io/static/media/cert_con.51c9b2eb8070fd82ff56.png",
+    "static/media/cert_play.png": "/zaizou1003.github.io/static/media/cert_play.3f1ef8d812afa90296f6.png",
     "static/media/certCybersecurity.png": "/zaizou1003.github.io/static/media/certCybersecurity.ec65317b82030c25c69c.png",
     "static/media/profile_pic-2.png": "/zaizou1003.github.io/static/media/profile_pic-2.f4034fe5152af4e36973.png",
     "static/media/MyLogo.png": "/zaizou1003.github.io/static/media/MyLogo.087c2801e05ac1c5e8b0.png",
+    "static/media/hug.png": "/zaizou1003.github.io/static/media/hug.13c13799ddda26ed6c5d.png",
     "static/media/Ecommerce.png": "/zaizou1003.github.io/static/media/Ecommerce.c3e8f05912f165297fdb.png",
     "static/media/cv.pdf": "/zaizou1003.github.io/static/media/cv.adf83312dbb69d444dcf.pdf",
     "static/media/dash.png": "/zaizou1003.github.io/static/media/dash.d05c11a881c9bd9f4374.png",
+    "static/media/Bekn.png": "/zaizou1003.github.io/static/media/Bekn.42ca1f85beb3263ea2ba.png",
     "static/media/profile_pic-1.jpg": "/zaizou1003.github.io/static/media/profile_pic-1.a51b8045d6f0ddab2e10.jpg",
     "static/media/certificate-logo.jpg": "/zaizou1003.github.io/static/media/certificate-logo.b269033eda68d24c0945.jpg",
     "static/media/ani.png": "/zaizou1003.github.io/static/media/ani.71ad656f28468bb7e073.png",
+    "static/media/shop.png": "/zaizou1003.github.io/static/media/shop.eeecb5087c46bbe2a9d3.png",
     "static/media/knife.jpg": "/zaizou1003.github.io/static/media/knife.ae1d0c76b16b7b535fc1.jpg",
     "static/media/lyc.png": "/zaizou1003.github.io/static/media/lyc.bf8777062b52d5e90354.png",
     "index.html": "/zaizou1003.github.io/index.html",
     "main.bf538fe7.css.map": "/zaizou1003.github.io/static/css/main.bf538fe7.css.map",
-    "main.c77bac73.js.map": "/zaizou1003.github.io/static/js/main.c77bac73.js.map",
-    "843.782fec84.chunk.js.map": "/zaizou1003.github.io/static/js/843.782fec84.chunk.js.map",
+    "main.42995b8c.js.map": "/zaizou1003.github.io/static/js/main.42995b8c.js.map",
+    "843.285bc0bf.chunk.js.map": "/zaizou1003.github.io/static/js/843.285bc0bf.chunk.js.map",
     "285.6c3989a2.chunk.js.map": "/zaizou1003.github.io/static/js/285.6c3989a2.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.bf538fe7.css",
-    "static/js/main.c77bac73.js"
+    "static/js/main.42995b8c.js"
   ]
 }
