@@ -71,13 +71,35 @@ const TimelineSection = styled.div`
     align-items: flex-end;
   }
 `;
+const ShowMoreButton = styled.button`
+  margin-top: 20px;
+  padding: 8px 16px;
+  border: 1px solid #854CE6;
+  color: #854CE6;
+  background: transparent;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+
+  &:hover {
+    background: rgba(133, 76, 230, 0.1);
+  }
+`;
 
 const CertificatesTimeline = () => {
   const [certificates, setCertificates] = useState([]);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
-    setCertificates(data.certificates); // Set the imported data
+    const sorted = [...data.certificates].sort((a, b) => new Date(b.date) - new Date(a.date));
+    setCertificates(sorted); // Set the imported data
   }, []);
+  const featuredIds = [7, 3, 5];
+  const visibleCertificates = showAll
+  ? certificates
+  : certificates.filter(cert => featuredIds.includes(cert.id));
+
 
   return (
     <Container id="certificates">
@@ -87,11 +109,11 @@ const CertificatesTimeline = () => {
         My certifications showcasing my skills and accomplishments.
         </Desc>
         <TimelineSection>
-            {certificates.map((certificate, index) => (
+            {visibleCertificates.map((certificate, index) => (
               <TimelineItem key={certificate.id} aria-label={`Certificate item ${index + 1}`} >
                 <TimelineSeparator>
                   <TimelineDot variant="outlined" color="secondary" />
-                  {index < certificates.length - 1 && (
+                  {index < visibleCertificates.length - 1 && (
                     <TimelineConnector style={{ background: '#854CE6' }} />
                   )}
                 </TimelineSeparator>
@@ -100,6 +122,12 @@ const CertificatesTimeline = () => {
                 </TimelineContent>
               </TimelineItem>
             ))}
+
+            {certificates.length > 3 && (
+              <ShowMoreButton onClick={() => setShowAll(!showAll)}>
+                {showAll ? "Show Less" : "Show More"}
+              </ShowMoreButton>
+            )}
         </TimelineSection>
       </Wrapper>
     </Container>
