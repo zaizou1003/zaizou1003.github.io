@@ -1,6 +1,9 @@
 import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getPrimaryNavigationItems } from '../src/components/layout/navigation.js';
+import { profile } from '../src/data/profile.js';
+import { projects } from '../src/data/projects.js';
 import { inspectArtifactText } from '../src/validation/privacy.js';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +33,7 @@ const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
   '.xml',
 ]);
 const TEXT_ARTIFACT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt', '.xml']);
+const SVG_PATH_DATA_PATTERN = /^[AaCcHhLlMmQqSsTtVvZzEe0-9+.,\s-]+$/;
 const FORBIDDEN_FILENAME_FRAGMENTS = [
   '.env',
   'certificate',
@@ -41,6 +45,15 @@ const FORBIDDEN_FILENAME_FRAGMENTS = [
 
 function countMatches(source, expression) {
   return source.match(expression)?.length ?? 0;
+}
+
+function escapePattern(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertExactCount(source, expression, expected, message) {
+  const count = countMatches(source, expression);
+  if (count !== expected) throw new Error(`${message}; found ${count}.`);
 }
 
 function visibleText(markup) {
@@ -93,6 +106,62 @@ export function extractRootMarkup(html, file = 'HTML document') {
   return html.slice(contentStart, closing.start);
 }
 
+export function assertStaticShell(rootMarkup, contract, file = contract.relativeFile ?? contract.id) {
+  assertExactCount(rootMarkup, /class="skip-link"/gi, 1, `${file} must contain one skip link`);
+  assertExactCount(rootMarkup, /<header(?:\s|>)/gi, 1, `${file} must contain one site header`);
+  assertExactCount(rootMarkup, /<main\b[^>]*\bid="main"[^>]*>/gi, 1, `${file} must contain one #main landmark`);
+  assertExactCount(rootMarkup, /<h1(?:\s|>)/gi, 1, `${file} must contain exactly one h1`);
+  assertExactCount(rootMarkup, /<footer(?:\s|>)/gi, 1, `${file} must contain one footer`);
+  assertExactCount(
+    rootMarkup,
+    /<nav\b[^>]*\baria-label="Primary"[^>]*>/gi,
+    1,
+    `${file} must contain one labelled primary navigation`,
+  );
+  assertExactCount(rootMarkup, /<details(?:\s|>)/gi, 1, `${file} must contain one native navigation disclosure`);
+  assertExactCount(rootMarkup, /<summary(?:\s|>)/gi, 1, `${file} must contain one disclosure summary`);
+
+  const skipLink = rootMarkup.match(/<a\b[^>]*\bclass="skip-link"[^>]*>/i)?.[0] ?? '';
+  if (!/\bhref="#main"/i.test(skipLink) || rootMarkup.indexOf(skipLink) > rootMarkup.search(/<header(?:\s|>)/i)) {
+    throw new Error(`${file} skip link must target #main and precede the header.`);
+  }
+
+  const primaryNavigation = rootMarkup.match(
+    /<nav\b[^>]*\baria-label="Primary"[^>]*>([\s\S]*?)<\/nav>/i,
+  )?.[1];
+  if (!primaryNavigation) throw new Error(`${file} primary navigation content is missing.`);
+
+  for (const item of getPrimaryNavigationItems(contract.id)) {
+    const linkPattern = new RegExp(
+      `<a\\b(?=[^>]*\\bhref="${escapePattern(item.href)}")[^>]*>[\\s\\S]*?${escapePattern(item.label)}[\\s\\S]*?<\\/a>`,
+      'i',
+    );
+    if (!linkPattern.test(primaryNavigation)) {
+      throw new Error(`${file} primary navigation is missing ${item.label}.`);
+    }
+  }
+
+  assertExactCount(
+    rootMarkup,
+    /data-footer-contacts=""/gi,
+    1,
+    `${file} must contain one footer contact list`,
+  );
+  for (const link of Object.values(profile.links)) {
+    const hrefPattern = new RegExp(`\\bhref="${escapePattern(link.href)}"`, 'i');
+    const kindPattern = new RegExp(`\\bdata-contact-kind="${escapePattern(link.kind)}"`, 'i');
+    if (!hrefPattern.test(rootMarkup) || !kindPattern.test(rootMarkup)) {
+      throw new Error(`${file} footer is missing the approved ${link.label} contact link.`);
+    }
+  }
+
+  for (const project of projects) {
+    if (rootMarkup.includes(project.title)) {
+      throw new Error(`${file} renders a publication-gated project during Milestone 3.`);
+    }
+  }
+}
+
 export function verifyPageHtml(html, contract, file = contract.relativeFile ?? contract.id) {
   if (!/<script\b[^>]*type=["']module["'][^>]*>/i.test(html)) {
     throw new Error(`${file} does not reference a client module.`);
@@ -121,6 +190,7 @@ export function verifyPageHtml(html, contract, file = contract.relativeFile ?? c
   if (!rootMarkup.includes(`data-static-page="${contract.id}"`)) {
     throw new Error(`${file} is missing its static page identifier.`);
   }
+  assertStaticShell(rootMarkup, contract, file);
   return rootMarkup;
 }
 
@@ -136,7 +206,14 @@ export function assertAllowedArtifactFilename(normalizedName) {
 }
 
 export function assertPublishSafeArtifactText(content, normalizedName) {
-  const rules = inspectArtifactText(content);
+  const extension = extname(normalizedName).toLowerCase();
+  const reviewContent =
+    extension === '.html' || extension === '.svg'
+      ? content.replaceAll(/\sd=(["'])([^"']*)\1/gi, (attribute, quote, pathData) =>
+          SVG_PATH_DATA_PATTERN.test(pathData) ? ` d=${quote}${quote}` : attribute,
+        )
+      : content;
+  const rules = inspectArtifactText(reviewContent);
   if (rules.length > 0) throw new Error(`${rules[0]}: ${normalizedName}`);
 }
 

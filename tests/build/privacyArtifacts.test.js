@@ -51,3 +51,17 @@ test('artifact failures report only the rule and filename, never the matched val
   );
   assert.equal(message.includes('redacted-test-value'), false);
 });
+
+test('valid SVG path coordinates are not phone data while visible phone-like text remains blocked', () => {
+  assert.doesNotThrow(() =>
+    assertPublishSafeArtifactText('<svg><path d="M12,2.75a9.25,9.25,0,0,0-2.93,18.03"></path></svg>', 'index.html'),
+  );
+  assert.throws(
+    () =>
+      assertPublishSafeArtifactText(
+        '<svg><path d="not-path redacted"></path></svg><p>Call +999 000 000 000</p>',
+        'index.html',
+      ),
+    /phone-like-value/,
+  );
+});

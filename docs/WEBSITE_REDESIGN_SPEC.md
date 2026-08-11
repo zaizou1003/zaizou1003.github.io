@@ -662,12 +662,15 @@ export function selectFeaturedProjects(projects) {
 | `--color-surface-raised` | `#17243A` | Raised/interactive cards |
 | `--color-text` | `#F5F7FA` | Primary text |
 | `--color-text-muted` | `#B7C3D4` | Secondary text |
-| `--color-border` | `#2B3B52` | Dividers/card borders |
+| `--color-border` | `#2B3B52` | Decorative dividers and passive card framing |
+| `--color-control-border` | `#5B7393` | Meaningful interactive-control boundaries |
 | `--color-accent` | `#5EEAD4` | Primary accent and button background |
 | `--color-accent-ink` | `#062821` | Text on accent |
 | `--color-link` | `#7DD3FC` | Inline links |
 | `--color-focus` | `#FDE047` | Focus indication |
 | `--color-danger` | `#FDA4AF` | Error text on dark surfaces |
+
+The locked `--color-border` remains the low-emphasis decorative token for separators and passive framing. The `--color-control-border` token exists to guarantee the WCAG 2.2 minimum 3:1 non-text contrast for interactive boundaries against the approved page, surface, and raised-surface backgrounds. Do not substitute the decorative token where the boundary is needed to identify a control.
 
 Final implementation must measure contrast in all default, hover, focus, visited, disabled, and error states. Minimums: 4.5:1 for normal text, 3:1 for large text and non-text UI boundaries, with no information conveyed by colour alone.
 
