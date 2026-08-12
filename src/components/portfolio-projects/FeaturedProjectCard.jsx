@@ -1,22 +1,13 @@
 import { LinkButton } from '../ui/LinkButton.jsx';
 import { TagList } from '../ui/TagList.jsx';
-
-function workModeLabel(workMode) {
-  if (workMode === 'individual') return 'Individual work by Ahmed';
-  if (workMode === 'team') return 'Team work with Ahmed’s contribution stated below';
-  throw new Error(`Unsupported project work mode: ${workMode}`);
-}
+import {
+  getProjectArtifactLinks,
+  getProjectWorkModeLabel,
+} from '../../utils/projectPresentation.js';
 
 export function FeaturedProjectCard({ project }) {
   const homepageEvidence = project.evidenceResults.slice(0, 3);
-  const artifactLinks = [
-    project.repositoryUrl
-      ? { href: project.repositoryUrl, label: 'View public repository' }
-      : null,
-    project.demoPaperUrl
-      ? { href: project.demoPaperUrl, label: 'View public artifact' }
-      : null,
-  ].filter(Boolean);
+  const artifactLinks = getProjectArtifactLinks(project);
 
   return (
     <article
@@ -28,8 +19,10 @@ export function FeaturedProjectCard({ project }) {
     >
       <div className="featured-project-card__header">
         <p className="card-order">Flagship {String(project.featuredOrder).padStart(2, '0')}</p>
-        <h3>{project.title}</h3>
-        <p className="work-mode-label">{workModeLabel(project.workMode)}</p>
+        <h3>
+          <a href={`/projects/#${project.id}`}>{project.title}</a>
+        </h3>
+        <p className="work-mode-label">{getProjectWorkModeLabel(project.workMode)}</p>
       </div>
       <div className="featured-project-card__layout">
         <div className="flow">
@@ -47,7 +40,7 @@ export function FeaturedProjectCard({ project }) {
             <dt>Ahmed’s role</dt>
             <dd>{project.role}</dd>
             <dt>Work status</dt>
-            <dd>{workModeLabel(project.workMode)}</dd>
+            <dd>{getProjectWorkModeLabel(project.workMode)}</dd>
           </dl>
         </div>
         <div className="project-evidence">

@@ -6,7 +6,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { profile } from '../src/data/profile.js';
 import { projects } from '../src/data/projects.js';
-import { selectFeaturedProjects } from '../src/data/selectors.js';
+import { selectFeaturedProjects, selectPublishedProjects } from '../src/data/selectors.js';
+import { ALL_PROJECTS_CATEGORY, getAvailableProjectCategories } from '../src/utils/projectFilters.js';
 import { HOME_SECTION_ORDER } from './verify-dist.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -28,7 +29,8 @@ function delay(milliseconds) {
 }
 
 async function preparePreviewDirectory() {
-  const requestedDirectory = process.env.MILESTONE4_PREVIEW_DIR;
+  const requestedDirectory =
+    process.env.MILESTONE5_PREVIEW_DIR ?? process.env.MILESTONE4_PREVIEW_DIR;
   if (!requestedDirectory) return null;
 
   const directory = resolve(requestedDirectory);
@@ -98,15 +100,39 @@ export function createHydrationMismatchFixture(html) {
   return `${html.slice(0, islandStart)}${changedIsland}${html.slice(islandEnd)}`;
 }
 
+export function createProjectsHydrationMismatchFixture(html) {
+  const islandStart = html.indexOf('data-hydrate-projects');
+  const islandEnd = html.indexOf('data-project-results-status', islandStart);
+  if (islandStart === -1 || islandEnd === -1) {
+    throw new Error('Cannot create mismatch fixture: Projects island is missing.');
+  }
+  const island = html.slice(islandStart, islandEnd);
+  const changedIsland = island.replace(
+    'Published project case studies',
+    'Projects hydration mismatch fixture',
+  );
+  if (changedIsland === island) {
+    throw new Error('Cannot create mismatch fixture: Projects heading is missing.');
+  }
+  return `${html.slice(0, islandStart)}${changedIsland}${html.slice(islandEnd)}`;
+}
+
 async function startStaticServer() {
   const homeHtml = await readFile(resolve(distDirectory, 'index.html'), 'utf8');
+  const projectsHtml = await readFile(resolve(distDirectory, 'projects/index.html'), 'utf8');
   const mismatchHtml = createHydrationMismatchFixture(homeHtml);
+  const projectsMismatchHtml = createProjectsHydrationMismatchFixture(projectsHtml);
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (url.pathname === '/__mismatch/') {
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         response.end(mismatchHtml);
+        return;
+      }
+      if (url.pathname === '/__mismatch/projects/') {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        response.end(projectsMismatchHtml);
         return;
       }
       if (url.pathname === '/favicon.ico') {
@@ -234,7 +260,10 @@ async function verifyPage(
     expectedHomeContacts = [],
     expectedHomeSections = [],
     expectedNavigationHrefs,
-    expectedProjectsPlaceholder = false,
+    expectedProjectArticleIds = [],
+    expectedProjectArtifactHrefs = [],
+    expectedProjectControlsHidden = null,
+    expectedProjectFilters = [],
     javaScriptEnabled,
     reducedMotion = false,
     screenshotFile = null,
@@ -305,8 +334,9 @@ async function verifyPage(
       `(async () => {
         const deadline = Date.now() + 10000;
         while (Date.now() < deadline) {
-          const status = document.querySelector('[data-hydrate-navigation]')?.dataset.hydrationStatus;
-          if (status === 'complete' || status === 'error') break;
+          const statuses = [...document.querySelectorAll('[data-hydration-status]')]
+            .map((element) => element.dataset.hydrationStatus);
+          if (statuses.length > 0 && statuses.every((status) => status === 'complete' || status === 'error')) break;
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
         await new Promise((resolve) => setTimeout(resolve, ${quietWindowMilliseconds}));
@@ -389,7 +419,7 @@ async function verifyPage(
       ];
       const practicalPointerTargets = [
         ...document.querySelectorAll(
-          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .home-contact-link, .footer-nav a, .footer-contact-link',
+          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .home-contact-link, .footer-nav a, .footer-contact-link, [data-project-filter], [data-project-empty-state] button',
         ),
       ].filter(isVisible);
       const essentialText = [
@@ -423,6 +453,18 @@ async function verifyPage(
         featuredProjectIds: [...document.querySelectorAll('[data-featured-project-id]')]
           .map((article) => article.dataset.featuredProjectId),
         projectsPlaceholderCount: document.querySelectorAll('[data-projects-placeholder]').length,
+        projectArticleIds: [...document.querySelectorAll('[data-project-article-id]')]
+          .map((article) => article.dataset.projectArticleId),
+        projectArtifactHrefs: [...document.querySelectorAll('[data-project-article-id] [data-project-artifacts] a[href]')]
+          .map((link) => link.getAttribute('href')),
+        projectImageCount: document.querySelectorAll('[data-project-article-id] img').length,
+        projectFilters: [...document.querySelectorAll('[data-project-filter]')]
+          .map((button) => ({
+            category: button.dataset.projectFilter,
+            pressed: button.getAttribute('aria-pressed')
+          })),
+        projectFilterControlsHidden: document.querySelector('[data-project-filter-controls]')?.hidden ?? null,
+        projectResultStatus: document.querySelector('[data-project-results-status]')?.textContent.trim() ?? null,
         primaryNavigationHrefs: primaryLinks.map((link) => link.getAttribute('href')),
         primaryNavigationVisible: primaryLinks.every(isVisible),
         summaryVisible: isVisible(summary),
@@ -445,6 +487,9 @@ async function verifyPage(
           Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) >
           document.documentElement.clientWidth + 1,
         hydrationStatus: document.querySelector('[data-hydrate-navigation]')?.dataset.hydrationStatus,
+        projectsHydrationStatus: document.querySelector('[data-hydrate-projects]')?.dataset.hydrationStatus ?? null,
+        hydrationStatuses: [...document.querySelectorAll('[data-hydration-status]')]
+          .map((element) => element.dataset.hydrationStatus),
         coreTextLength: document.querySelector('#root')?.innerText.trim().length ?? 0
       };
     })()`,
@@ -521,8 +566,36 @@ async function verifyPage(
   if (JSON.stringify(snapshot.homeContacts) !== JSON.stringify(expectedHomeContacts)) {
     throw new Error(`${path} at ${width}px has an unexpected homepage contact contract.`);
   }
-  if (snapshot.projectsPlaceholderCount !== (expectedProjectsPlaceholder ? 1 : 0)) {
-    throw new Error(`${path} at ${width}px has an unexpected Projects placeholder state.`);
+  if (snapshot.projectsPlaceholderCount !== 0) {
+    throw new Error(`${path} at ${width}px retains the obsolete Projects placeholder.`);
+  }
+  if (JSON.stringify(snapshot.projectArticleIds) !== JSON.stringify(expectedProjectArticleIds)) {
+    throw new Error(`${path} at ${width}px has an unexpected published project set or order.`);
+  }
+  if (
+    JSON.stringify(snapshot.projectArtifactHrefs) !== JSON.stringify(expectedProjectArtifactHrefs) ||
+    snapshot.projectImageCount !== 0
+  ) {
+    throw new Error(`${path} at ${width}px has an unexpected project artifact or image placeholder.`);
+  }
+  if (
+    JSON.stringify(snapshot.projectFilters.map(({ category }) => category)) !==
+    JSON.stringify(expectedProjectFilters)
+  ) {
+    throw new Error(`${path} at ${width}px has an unexpected useful project-filter set.`);
+  }
+  if (expectedProjectFilters.length > 0) {
+    const expectedHidden = expectedProjectControlsHidden ?? !javaScriptEnabled;
+    if (snapshot.projectFilterControlsHidden !== expectedHidden) {
+      throw new Error(`${path} at ${width}px has an unsafe pre-enhancement filter state.`);
+    }
+    if (
+      snapshot.projectFilters[0]?.category !== ALL_PROJECTS_CATEGORY ||
+      snapshot.projectFilters[0]?.pressed !== 'true' ||
+      snapshot.projectFilters.slice(1).some(({ pressed }) => pressed !== 'false')
+    ) {
+      throw new Error(`${path} at ${width}px does not preserve the default All filter state.`);
+    }
   }
   if (snapshot.summaryVisible) {
     if (!interaction.nativeDisclosureOpened) {
@@ -549,6 +622,248 @@ async function verifyPage(
   return { ...snapshot, interaction, errors, screenshotFile };
 }
 
+async function verifyProjectsBehavior(connection, origin) {
+  const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await connection.send('Target.attachToTarget', { targetId, flatten: true });
+  const errors = [];
+  const runtimeListener = (message) => {
+    if (message.sessionId === sessionId) errors.push(message.method);
+  };
+  const consoleListener = (message) => {
+    if (message.sessionId === sessionId && message.params.type === 'error') errors.push('console.error');
+  };
+  const runtimeListeners = connection.listeners.get('Runtime.exceptionThrown') ?? new Set();
+  const consoleListeners = connection.listeners.get('Runtime.consoleAPICalled') ?? new Set();
+  runtimeListeners.add(runtimeListener);
+  consoleListeners.add(consoleListener);
+  connection.listeners.set('Runtime.exceptionThrown', runtimeListeners);
+  connection.listeners.set('Runtime.consoleAPICalled', consoleListeners);
+
+  await connection.send('Runtime.enable', {}, sessionId);
+  await connection.send('Page.enable', {}, sessionId);
+  await connection.send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 768, height: 1000, deviceScaleFactor: 1, mobile: false },
+    sessionId,
+  );
+
+  async function waitForProjects(category) {
+    await evaluate(
+      connection,
+      sessionId,
+      `(async () => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          const statuses = [...document.querySelectorAll('[data-hydration-status]')]
+            .map((element) => element.dataset.hydrationStatus);
+          const selected = document.querySelector('[data-project-filter][aria-pressed="true"]')
+            ?.dataset.projectFilter;
+          if (statuses.length === 2 && statuses.every((status) => status === 'complete') && selected === ${JSON.stringify(category)}) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error('Timed out waiting for Projects state.');
+      })()`,
+    );
+  }
+
+  async function navigate(path, category = ALL_PROJECTS_CATEGORY) {
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.navigate', { url: `${origin}${path}` }, sessionId);
+    await loaded;
+    await waitForProjects(category);
+  }
+
+  async function reload(category = ALL_PROJECTS_CATEGORY) {
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.reload', { ignoreCache: true }, sessionId);
+    await loaded;
+    await waitForProjects(category);
+  }
+
+  async function snapshot() {
+    return evaluate(
+      connection,
+      sessionId,
+      `(() => ({
+        href: location.pathname + location.search + location.hash,
+        selected: document.querySelector('[data-project-filter][aria-pressed="true"]')?.dataset.projectFilter,
+        visibleIds: [...document.querySelectorAll('[data-project-article-id]')]
+          .map((article) => article.dataset.projectArticleId),
+        status: document.querySelector('[data-project-results-status]')?.textContent.trim(),
+        live: document.querySelector('[data-project-results-status]')?.getAttribute('aria-live'),
+        controlsHidden: document.querySelector('[data-project-filter-controls]')?.hidden,
+        focusedFilter: document.activeElement?.dataset?.projectFilter ?? null,
+        hydrationStatuses: [...document.querySelectorAll('[data-hydration-status]')]
+          .map((element) => element.dataset.hydrationStatus),
+        articleCount: document.querySelectorAll('[data-project-article-id]').length,
+        artifactCount: document.querySelectorAll('[data-project-article-id] [data-project-artifacts] a[href]').length,
+        targetPosition: (() => {
+          const target = document.querySelector(':target');
+          const header = document.querySelector('.site-header');
+          if (!target || !header) return null;
+          return { top: target.getBoundingClientRect().top, headerBottom: header.getBoundingClientRect().bottom };
+        })()
+      }))()`,
+    );
+  }
+
+  function assertState(actual, { category, href, ids }) {
+    if (
+      actual.selected !== category ||
+      actual.href !== href ||
+      JSON.stringify(actual.visibleIds) !== JSON.stringify(ids) ||
+      actual.status !== `Showing ${ids.length} of 3 projects.` ||
+      actual.live !== 'polite' ||
+      actual.controlsHidden !== false ||
+      !actual.hydrationStatuses.every((status) => status === 'complete')
+    ) {
+      throw new Error(`Projects behavior contract failed for ${href}.`);
+    }
+  }
+
+  const publishedIds = selectPublishedProjects(projects).map((project) => project.id);
+  const airQualityId = 'european-air-quality-evidence-agent';
+  const metaMindId = 'metamind-responsible-ai-learning-companion';
+
+  try {
+    await navigate('/projects/?category=agentic-ai', 'agentic-ai');
+    assertState(await snapshot(), {
+      category: 'agentic-ai',
+      href: '/projects/?category=agentic-ai',
+      ids: [airQualityId, metaMindId],
+    });
+    await reload('agentic-ai');
+    assertState(await snapshot(), {
+      category: 'agentic-ai',
+      href: '/projects/?category=agentic-ai',
+      ids: [airQualityId, metaMindId],
+    });
+
+    await evaluate(
+      connection,
+      sessionId,
+      `document.querySelector('[data-project-filter="mcp"]').focus()`,
+    );
+    await connection.send(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: ' ', code: 'Space' },
+      sessionId,
+    );
+    await connection.send(
+      'Input.dispatchKeyEvent',
+      { type: 'keyUp', key: ' ', code: 'Space' },
+      sessionId,
+    );
+    await waitForProjects('mcp');
+    const keyboardState = await snapshot();
+    assertState(keyboardState, {
+      category: 'mcp',
+      href: '/projects/?category=mcp',
+      ids: [airQualityId],
+    });
+    if (keyboardState.focusedFilter !== 'mcp') {
+      throw new Error('Project filtering did not retain keyboard focus on the activated button.');
+    }
+
+    await evaluate(
+      connection,
+      sessionId,
+      `document.querySelector('[data-project-filter="responsible-ai"]').click()`,
+    );
+    await waitForProjects('responsible-ai');
+    assertState(await snapshot(), {
+      category: 'responsible-ai',
+      href: '/projects/?category=responsible-ai',
+      ids: [airQualityId, metaMindId],
+    });
+
+    await evaluate(connection, sessionId, 'history.back()');
+    await waitForProjects('mcp');
+    assertState(await snapshot(), {
+      category: 'mcp',
+      href: '/projects/?category=mcp',
+      ids: [airQualityId],
+    });
+    await evaluate(connection, sessionId, 'history.forward()');
+    await waitForProjects('responsible-ai');
+    assertState(await snapshot(), {
+      category: 'responsible-ai',
+      href: '/projects/?category=responsible-ai',
+      ids: [airQualityId, metaMindId],
+    });
+
+    for (const invalidPath of [
+      '/projects/?category=computer-vision',
+      '/projects/?category=unknown',
+      '/projects/?category=',
+      '/projects/?category=agentic-ai&category=mcp',
+      '/projects/?category=%E0%A4%A',
+      '/projects/?category=agentic-ai&source=test',
+    ]) {
+      await navigate(invalidPath);
+      assertState(await snapshot(), {
+        category: ALL_PROJECTS_CATEGORY,
+        href: '/projects/',
+        ids: publishedIds,
+      });
+    }
+
+    await navigate(`/projects/?category=applied-research#${airQualityId}`);
+    const deepState = await snapshot();
+    assertState(deepState, {
+      category: ALL_PROJECTS_CATEGORY,
+      href: `/projects/#${airQualityId}`,
+      ids: publishedIds,
+    });
+    if (
+      !deepState.targetPosition ||
+      deepState.targetPosition.top + 1 < deepState.targetPosition.headerBottom
+    ) {
+      throw new Error('The direct project fragment is obscured by the sticky header.');
+    }
+    await reload();
+    assertState(await snapshot(), {
+      category: ALL_PROJECTS_CATEGORY,
+      href: `/projects/#${airQualityId}`,
+      ids: publishedIds,
+    });
+
+    await navigate('/projects/');
+    const allState = await snapshot();
+    assertState(allState, {
+      category: ALL_PROJECTS_CATEGORY,
+      href: '/projects/',
+      ids: publishedIds,
+    });
+    if (allState.articleCount !== 3 || allState.artifactCount !== 2) {
+      throw new Error('Projects direct load does not expose the complete approved collection and artifacts.');
+    }
+    await reload();
+    assertState(await snapshot(), {
+      category: ALL_PROJECTS_CATEGORY,
+      href: '/projects/',
+      ids: publishedIds,
+    });
+
+    if (errors.length > 0) {
+      throw new Error(`Projects interactions emitted browser errors: ${errors.join(', ')}.`);
+    }
+    return {
+      validQuery: true,
+      keyboardAndFocus: true,
+      history: true,
+      invalidQueryFallbacks: 6,
+      deepFragment: true,
+      directLoadAndRefresh: true,
+      publishedIds,
+    };
+  } finally {
+    await connection.send('Target.closeTarget', { targetId });
+    runtimeListeners.delete(runtimeListener);
+    consoleListeners.delete(consoleListener);
+  }
+}
+
 export async function verifyBrowser() {
   const browserExecutable = await findBrowserExecutable();
   const staticServer = await startStaticServer();
@@ -573,10 +888,13 @@ export async function verifyBrowser() {
   try {
     const version = await waitForDevTools(resolve(profileDirectory, 'DevToolsActivePort'));
     connection = new DevToolsConnection(version.webSocketDebuggerUrl);
+    const publishedProjectIds = selectPublishedProjects(projects).map((project) => project.id);
+    const projectFilters = [ALL_PROJECTS_CATEGORY, ...getAvailableProjectCategories(projects)];
     const contracts = [
       {
         id: 'home',
         screenshotPrefix: 'home',
+        screenshotWidths: [320, 1440],
         widths: [320, 768, 1440],
         path: '/',
         expectedHeading: 'Ahmed Aziz Ben Aissa',
@@ -599,11 +917,15 @@ export async function verifyBrowser() {
       },
       {
         id: 'projects',
-        screenshotPrefix: 'projects-placeholder',
-        widths: [320, 1440],
+        screenshotPrefix: 'projects',
+        screenshotWidths: [320, 768, 1440],
+        widths: [320, 768, 1440],
         path: '/projects/',
         expectedHeading: 'Projects',
-        expectedProjectsPlaceholder: true,
+        expectedProjectArticleIds: publishedProjectIds,
+        expectedProjectArtifactHrefs: selectPublishedProjects(projects)
+          .flatMap((project) => [project.repositoryUrl, project.demoPaperUrl].filter(Boolean)),
+        expectedProjectFilters: projectFilters,
         expectedNavigationHrefs: [
           '/#capabilities',
           '/#featured-projects',
@@ -622,7 +944,7 @@ export async function verifyBrowser() {
     const screenshots = [];
     for (const contract of contracts) {
       for (const width of contract.widths) {
-        const screenshotFile = previewDirectory
+        const screenshotFile = previewDirectory && contract.screenshotWidths.includes(width)
           ? resolve(previewDirectory, `${contract.screenshotPrefix}-${width}.png`)
           : null;
         const result = await verifyPage(connection, staticServer.origin, {
@@ -631,9 +953,12 @@ export async function verifyBrowser() {
           screenshotFile,
           width,
         });
-        if (result.hydrationStatus !== 'complete' || result.errors.length > 0) {
+        if (
+          !result.hydrationStatuses.every((status) => status === 'complete') ||
+          result.errors.length > 0
+        ) {
           throw new Error(
-            `${contract.path} at ${width}px did not complete clean hydration (status: ${result.hydrationStatus}; signals: ${result.errors.join(', ') || 'none'}).`,
+            `${contract.path} at ${width}px did not complete clean hydration (statuses: ${result.hydrationStatuses.join(', ') || 'none'}; signals: ${result.errors.join(', ') || 'none'}).`,
           );
         }
         hydrated.push({
@@ -649,9 +974,12 @@ export async function verifyBrowser() {
           javaScriptEnabled: false,
           width,
         });
-        if (staticResult.hydrationStatus !== 'static' || staticResult.errors.length > 0) {
+        if (
+          !staticResult.hydrationStatuses.every((status) => status === 'static') ||
+          staticResult.errors.length > 0
+        ) {
           throw new Error(
-            `${contract.path} at ${width}px did not preserve its no-JavaScript static state (status: ${staticResult.hydrationStatus}; signals: ${staticResult.errors.join(', ') || 'none'}).`,
+            `${contract.path} at ${width}px did not preserve its no-JavaScript static state (statuses: ${staticResult.hydrationStatuses.join(', ') || 'none'}; signals: ${staticResult.errors.join(', ') || 'none'}).`,
           );
         }
         noJavaScript.push({
@@ -669,7 +997,7 @@ export async function verifyBrowser() {
         width: 320,
       });
       if (
-        reducedResult.hydrationStatus !== 'complete' ||
+        !reducedResult.hydrationStatuses.every((status) => status === 'complete') ||
         !reducedResult.reducedMotionApplied ||
         reducedResult.errors.length > 0
       ) {
@@ -680,6 +1008,8 @@ export async function verifyBrowser() {
       reducedMotion.push({ path: contract.path, width: 320, status: 'reduced' });
     }
 
+    const projectsBehavior = await verifyProjectsBehavior(connection, staticServer.origin);
+
     const mismatch = await verifyPage(connection, staticServer.origin, {
       ...contracts[0],
       path: '/__mismatch/',
@@ -689,12 +1019,24 @@ export async function verifyBrowser() {
     if (mismatch.hydrationStatus !== 'error' || mismatch.errors.length === 0) {
       throw new Error('Deliberate hydration mismatch was not detected by the browser gate.');
     }
+    const projectsMismatch = await verifyPage(connection, staticServer.origin, {
+      ...contracts[1],
+      path: '/__mismatch/projects/',
+      expectedProjectControlsHidden: true,
+      javaScriptEnabled: true,
+      width: 320,
+    });
+    if (projectsMismatch.projectsHydrationStatus !== 'error' || projectsMismatch.errors.length === 0) {
+      throw new Error('Deliberate Projects hydration mismatch was not detected by the browser gate.');
+    }
     return {
       status: 'verified',
       hydrated,
       noJavaScript,
       reducedMotion,
       mismatchDetected: true,
+      projectsMismatchDetected: true,
+      projectsBehavior,
       screenshots,
     };
   } finally {
@@ -707,7 +1049,7 @@ export async function verifyBrowser() {
       ]);
     }
     await staticServer.close();
-    await rm(profileDirectory, { recursive: true, force: true });
+    await rm(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 

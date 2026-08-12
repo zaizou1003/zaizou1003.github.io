@@ -13,9 +13,19 @@ import {
   selectFeaturedProjects,
   selectPublishedEducation,
   selectPublishedExperience,
+  selectPublishedProjects,
   selectPublishedSkillGroups,
 } from '../../src/data/index.js';
 import { formatMonthRange, formatMonthYear, formatYearRange } from '../../src/utils/dates.js';
+import {
+  ALL_PROJECTS_CATEGORY,
+  getAvailableProjectCategories,
+} from '../../src/utils/projectFilters.js';
+import {
+  getProjectArtifactLinks,
+  getProjectCategoryLabel,
+  getProjectWorkModeLabel,
+} from '../../src/utils/projectPresentation.js';
 
 const contract = { id: 'home', relativeFile: 'index.html', heading: 'Ahmed Aziz Ben Aissa' };
 
@@ -36,19 +46,18 @@ function primaryLinks(pageId) {
 }
 
 function completeMarkup(pageId = 'home') {
-  const heading = pageId === 'home' ? 'Ahmed Aziz Ben Aissa' : 'Projects';
   const mainContent =
     pageId === 'home'
       ? homeNarrative()
-      : `<section data-projects-placeholder=""><h1>${heading}</h1><p>Project case studies remain under evidence review.</p></section>`;
+      : projectsNarrative();
   return [
     '<a class="skip-link" href="#main">Skip to main content</a>',
-    '<header><div data-hydrate-navigation>',
+    '<header class="site-header"><div data-hydrate-navigation>',
     '<nav aria-label="Primary"><details><summary>Menu</summary>',
     `<ul>${primaryLinks(pageId)}</ul></details></nav>`,
     '</div></header>',
     `<main id="main" data-static-page="${pageId}">${mainContent}</main>`,
-    '<footer><ul data-footer-contacts="">',
+    '<footer class="site-footer"><ul data-footer-contacts="">',
     '<li><a href="mailto:Ahmedazizbenaissa@gmail.com" data-contact-kind="email">Email</a></li>',
     '<li><a href="https://www.linkedin.com/in/ahmed-ben-aissa-5b34992a3/" data-contact-kind="linkedin">LinkedIn</a></li>',
     '<li><a href="https://github.com/zaizou1003" data-contact-kind="github">GitHub</a></li>',
@@ -73,21 +82,19 @@ function homeNarrative() {
             `<li><strong>${result.label}</strong><span>${result.value}</span><span>${result.method}</span></li>`,
         )
         .join('');
-      const artifacts = project.repositoryUrl
-        ? `<div data-project-artifacts=""><a href="${project.repositoryUrl}">View public repository</a></div>`
+      const artifacts = getProjectArtifactLinks(project).length > 0
+        ? `<div data-project-artifacts="">${getProjectArtifactLinks(project).map((link) => `<a href="${link.href}">${link.label}</a>`).join('')}</div>`
         : '';
       const approvedFacts = [
         project.summary,
         project.role,
-        project.workMode === 'individual'
-          ? 'Individual work by Ahmed'
-          : 'Team work with Ahmed’s contribution stated below',
+        getProjectWorkModeLabel(project.workMode),
         ...project.detailedDescription,
         ...project.technologies,
       ]
         .map((value) => `<p>${value}</p>`)
         .join('');
-      return `<article data-featured-project-id="${project.id}" data-work-mode="${project.workMode}"><h3>${project.title}</h3>${approvedFacts}<ul data-project-evidence="">${evidence}</ul>${artifacts}</article>`;
+      return `<article data-featured-project-id="${project.id}" data-work-mode="${project.workMode}"><h3><a href="/projects/#${project.id}">${project.title}</a></h3>${approvedFacts}<ul data-project-evidence="">${evidence}</ul>${artifacts}</article>`;
     })
     .join('');
   const experienceMarkup = selectPublishedExperience(portfolioData.experience)
@@ -145,6 +152,50 @@ function homeNarrative() {
     `<section id="certifications" data-home-section="certifications">${certificationMarkup}</section>`,
     `<section id="education" data-home-section="education">${educationMarkup}</section>`,
     `<section id="contact" data-home-section="contact">${contacts}</section>`,
+  ].join('');
+}
+
+function projectsNarrative() {
+  const publishedProjects = selectPublishedProjects(portfolioData.projects);
+  const availableCategories = getAvailableProjectCategories(publishedProjects);
+  const filters = [ALL_PROJECTS_CATEGORY, ...availableCategories]
+    .map(
+      (category) =>
+        `<button aria-pressed="${category === ALL_PROJECTS_CATEGORY}" data-project-filter="${category}">${category === ALL_PROJECTS_CATEGORY ? 'All' : getProjectCategoryLabel(category)}</button>`,
+    )
+    .join('');
+  const articles = publishedProjects
+    .map((project) => {
+      const facts = [
+        project.summary,
+        ...project.detailedDescription,
+        project.role,
+        getProjectWorkModeLabel(project.workMode),
+        ...project.technologies,
+        ...project.categories.map(getProjectCategoryLabel),
+      ]
+        .map((value) => `<p>${value}</p>`)
+        .join('');
+      const evidence = project.evidenceResults
+        .map(
+          (result) =>
+            `<li><strong>${result.label}</strong><span>${result.value}</span><span>${result.method}</span></li>`,
+        )
+        .join('');
+      const artifactLinks = getProjectArtifactLinks(project);
+      const artifacts = artifactLinks.length > 0
+        ? `<div data-project-artifacts="">${artifactLinks.map((link) => `<a href="${link.href}">${link.label}</a>`).join('')}</div>`
+        : '';
+      return `<article data-project-article-id="${project.id}" data-work-mode="${project.workMode}"><h3><a href="#${project.id}">${project.title}</a></h3>${facts}<ul data-project-evidence="">${evidence}</ul>${artifacts}</article>`;
+    })
+    .join('');
+
+  return [
+    '<section><h1>Projects</h1><p>Evidence-led case studies.</p></section>',
+    '<div data-hydrate-projects="" data-hydration-status="static">',
+    `<section><h2>Published project case studies</h2><div data-project-filter-controls="" hidden="">${filters}</div>`,
+    `<p data-project-results-status="">Showing ${publishedProjects.length} of ${publishedProjects.length} projects.</p>`,
+    `<ol data-project-article-list="">${articles}</ol></section></div>`,
   ].join('');
 }
 
@@ -234,7 +285,7 @@ test('static shell verification requires all three approved contact types', () =
   assert.throws(() => verifyPageHtml(html, contract), /approved GitHub contact link/i);
 });
 
-test('Milestone 4 homepage requires the exact published flagship set and order', () => {
+test('homepage requires the exact published flagship set and order', () => {
   const firstId = portfolioData.projects[0].id;
   const secondId = portfolioData.projects[1].id;
   const html = documentWith(
@@ -246,7 +297,7 @@ test('Milestone 4 homepage requires the exact published flagship set and order',
   assert.throws(() => verifyPageHtml(html, contract), /exact published flagship order/i);
 });
 
-test('Milestone 4 homepage requires the exact stable section order', () => {
+test('homepage requires the exact stable section order', () => {
   const html = documentWith(
     completeMarkup().replace(
       'data-home-section="capabilities"',
@@ -268,6 +319,14 @@ test('a project with null artifact URLs cannot render a placeholder anchor', () 
   );
 });
 
+test('homepage flagship titles link to their stable Projects article anchors', () => {
+  const markup = completeMarkup();
+  for (const project of selectFeaturedProjects(portfolioData.projects)) {
+    assert.match(markup, new RegExp(`href="/projects/#${project.id}"`));
+  }
+  assert.doesNotThrow(() => verifyPageHtml(documentWith(markup), contract));
+});
+
 test('VroomVroom cannot enter personal flagship project markup', () => {
   const markup = completeMarkup();
   const firstProjectStart = markup.indexOf(
@@ -281,7 +340,80 @@ test('VroomVroom cannot enter personal flagship project markup', () => {
   );
 });
 
-test('Projects page rejects real project articles during Milestone 4', () => {
+test('Projects page requires the exact complete published project order', () => {
+  const projectsContract = {
+    id: 'projects',
+    relativeFile: 'projects/index.html',
+    heading: 'Projects',
+  };
+  const firstId = portfolioData.projects[0].id;
+  const secondId = portfolioData.projects[1].id;
+  const html = documentWith(
+    completeMarkup('projects').replace(
+      `data-project-article-id="${firstId}"`,
+      `data-project-article-id="${secondId}"`,
+    ),
+  );
+  assert.throws(() => verifyPageHtml(html, projectsContract), /deterministic order/i);
+});
+
+test('Projects page rejects incomplete evidence and artifact placeholders', async (context) => {
+  const projectsContract = {
+    id: 'projects',
+    relativeFile: 'projects/index.html',
+    heading: 'Projects',
+  };
+  const firstEvidence = portfolioData.projects[0].evidenceResults[0];
+  await context.test('missing evidence method', () => {
+    const html = documentWith(
+      completeMarkup('projects').replace(firstEvidence.method, 'Removed evidence method'),
+    );
+    assert.throws(() => verifyPageHtml(html, projectsContract), /incomplete evidence details/i);
+  });
+  await context.test('null artifact placeholder', () => {
+    const metaMind = portfolioData.projects[2];
+    const markup = completeMarkup('projects');
+    const articleStart = markup.indexOf(`data-project-article-id="${metaMind.id}"`);
+    const articleEnd = markup.indexOf('</article>', articleStart);
+    const changed = `${markup.slice(0, articleEnd)}<a href="#">Repository unavailable</a>${markup.slice(articleEnd)}`;
+    assert.throws(
+      () => verifyPageHtml(documentWith(changed), projectsContract),
+      /unapproved, missing or placeholder link/i,
+    );
+  });
+});
+
+test('Projects page requires only useful published filters and a hidden All baseline', async (context) => {
+  const projectsContract = {
+    id: 'projects',
+    relativeFile: 'projects/index.html',
+    heading: 'Projects',
+  };
+  await context.test('unavailable category', () => {
+    const html = documentWith(
+      completeMarkup('projects').replace(
+        'data-project-filter="data-systems"',
+        'data-project-filter="computer-vision"',
+      ),
+    );
+    assert.throws(() => verifyPageHtml(html, projectsContract), /useful published-project filters/i);
+  });
+  await context.test('controls visible before enhancement', () => {
+    const html = documentWith(completeMarkup('projects').replace(' hidden=""', ''));
+    assert.throws(() => verifyPageHtml(html, projectsContract), /hidden before enhancement/i);
+  });
+  await context.test('All not selected', () => {
+    const html = documentWith(
+      completeMarkup('projects').replace(
+        'aria-pressed="true" data-project-filter="all"',
+        'aria-pressed="false" data-project-filter="all"',
+      ),
+    );
+    assert.throws(() => verifyPageHtml(html, projectsContract), /All as the selected filter/i);
+  });
+});
+
+test('Projects page rejects an extra unpublished article fixture', () => {
   const projectsContract = {
     id: 'projects',
     relativeFile: 'projects/index.html',
@@ -289,9 +421,9 @@ test('Projects page rejects real project articles during Milestone 4', () => {
   };
   const html = documentWith(
     completeMarkup('projects').replace(
-      '</main>',
-      `<article data-featured-project-id="${portfolioData.projects[0].id}"><h2>${portfolioData.projects[0].title}</h2></article></main>`,
+      '</ol>',
+      '<li><article data-project-article-id="private-project"><h3>Private project</h3></article></li></ol>',
     ),
   );
-  assert.throws(() => verifyPageHtml(html, projectsContract), /must not render flagship|before Milestone 5/i);
+  assert.throws(() => verifyPageHtml(html, projectsContract), /deterministic order/i);
 });

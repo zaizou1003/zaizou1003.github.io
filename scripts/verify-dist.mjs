@@ -2,6 +2,7 @@ import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPrimaryNavigationItems } from '../src/components/layout/navigation.js';
+import { iconDefinitions } from '../src/components/ui/iconPaths.js';
 import { capabilities } from '../src/data/capabilities.js';
 import { certifications } from '../src/data/certifications.js';
 import { education } from '../src/data/education.js';
@@ -15,10 +16,17 @@ import {
   selectFeaturedProjects,
   selectPublishedEducation,
   selectPublishedExperience,
+  selectPublishedProjects,
   selectPublishedSkillGroups,
 } from '../src/data/selectors.js';
 import { skills } from '../src/data/skills.js';
 import { formatMonthRange, formatMonthYear, formatYearRange } from '../src/utils/dates.js';
+import { ALL_PROJECTS_CATEGORY, getAvailableProjectCategories } from '../src/utils/projectFilters.js';
+import {
+  getProjectArtifactLinks,
+  getProjectCategoryLabel,
+  getProjectWorkModeLabel,
+} from '../src/utils/projectPresentation.js';
 import { inspectArtifactText } from '../src/validation/privacy.js';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +69,24 @@ const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
 ]);
 const TEXT_ARTIFACT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt', '.xml']);
 const SVG_PATH_DATA_PATTERN = /^[AaCcHhLlMmQqSsTtVvZzEe0-9+.,\s-]+$/;
+const APPROVED_ICON_PATHS = new Set(
+  Object.values(iconDefinitions).flatMap((definition) => definition.paths),
+);
+const REGEX_PREFIX_KEYWORDS = new Set([
+  'await',
+  'case',
+  'delete',
+  'do',
+  'else',
+  'in',
+  'instanceof',
+  'of',
+  'return',
+  'throw',
+  'typeof',
+  'void',
+  'yield',
+]);
 const FORBIDDEN_FILENAME_FRAGMENTS = [
   '.env',
   'certificate',
@@ -197,7 +223,13 @@ export function assertHomeNarrative(rootMarkup, file = 'index.html') {
   for (const project of publishedFeatured) {
     const article = findArticleByAttribute(rootMarkup, 'data-featured-project-id', project.id);
     if (!article) throw new Error(`${file} is missing the ${project.id} flagship article.`);
-    if (!new RegExp(`<h3(?:\\s[^>]*)?>${escapePattern(project.title)}<\\/h3>`, 'i').test(article)) {
+    const projectHref = `/projects/#${project.id}`;
+    if (
+      !new RegExp(
+        `<h3(?:\\s[^>]*)?>\\s*<a\\b(?=[^>]*\\bhref="${escapePattern(projectHref)}")[^>]*>${escapePattern(project.title)}<\\/a>\\s*<\\/h3>`,
+        'i',
+      ).test(article)
+    ) {
       throw new Error(`${file} has a title mismatch for flagship ${project.id}.`);
     }
     if (!new RegExp(`\\bdata-work-mode="${project.workMode}"`, 'i').test(article)) {
@@ -223,17 +255,17 @@ export function assertHomeNarrative(rootMarkup, file = 'index.html') {
       ],
       `${file} does not render the complete approved homepage facts for ${project.id}`,
     );
-    const expectedWorkLabel =
-      project.workMode === 'individual'
-        ? 'Individual work by Ahmed'
-        : 'Team work with Ahmed’s contribution stated below';
+    const expectedWorkLabel = getProjectWorkModeLabel(project.workMode);
     if (!article.includes(expectedWorkLabel)) {
       throw new Error(`${file} is missing the explicit work-status label for ${project.id}.`);
     }
     const actualArtifactHrefs = [...article.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi)].map(
       (match) => match[1],
     );
-    const expectedArtifactHrefs = [project.repositoryUrl, project.demoPaperUrl].filter(Boolean);
+    const expectedArtifactHrefs = [
+      projectHref,
+      ...getProjectArtifactLinks(project).map((link) => link.href),
+    ];
     if (JSON.stringify(actualArtifactHrefs) !== JSON.stringify(expectedArtifactHrefs)) {
       throw new Error(`${file} renders an unapproved or missing artifact link for ${project.id}.`);
     }
@@ -393,32 +425,155 @@ export function assertHomeNarrative(rootMarkup, file = 'index.html') {
   assertExactCount(rootMarkup, /<form(?:\s|>)/gi, 0, `${file} must not contain a contact form`);
 }
 
-export function assertProjectsPlaceholder(rootMarkup, file = 'projects/index.html') {
+export function assertProjectsNarrative(rootMarkup, file = 'projects/index.html') {
+  const publishedProjects = selectPublishedProjects(projects);
+  const availableCategories = getAvailableProjectCategories(publishedProjects);
+
   assertExactCount(
     rootMarkup,
     /data-projects-placeholder=""/gi,
-    1,
-    `${file} must retain one explicit Projects placeholder`,
+    0,
+    `${file} must not retain the Milestone 4 Projects placeholder`,
   );
   assertExactCount(
     rootMarkup,
-    /data-featured-project-id=/gi,
-    0,
-    `${file} must not render flagship project articles during Milestone 4`,
+    /data-hydrate-projects=""/gi,
+    1,
+    `${file} must contain one Projects explorer hydration island`,
   );
-  for (const project of projects) {
-    if (rootMarkup.includes(project.id) || rootMarkup.includes(project.title)) {
-      throw new Error(`${file} renders project record ${project.id} before Milestone 5.`);
+  assertExactCount(
+    rootMarkup,
+    /data-project-filter-controls=""[^>]*\bhidden=""/gi,
+    1,
+    `${file} filter controls must remain hidden before enhancement`,
+  );
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-project-filter',
+    [ALL_PROJECTS_CATEGORY, ...availableCategories],
+    `${file} must render only useful published-project filters`,
+  );
+  const allFilterButton = rootMarkup.match(
+    /<button\b[^>]*\bdata-project-filter="all"[^>]*>/i,
+  )?.[0];
+  if (!allFilterButton || !/\baria-pressed="true"/i.test(allFilterButton)) {
+    throw new Error(`${file} must server-render All as the selected filter.`);
+  }
+  assertExactCount(
+    rootMarkup,
+    /data-project-results-status=""/gi,
+    1,
+    `${file} must render one project-results status`,
+  );
+  if (!rootMarkup.includes(`Showing ${publishedProjects.length} of ${publishedProjects.length} projects.`)) {
+    throw new Error(`${file} must server-render the complete All result count.`);
+  }
+
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-project-article-id',
+    publishedProjects.map((project) => project.id),
+    `${file} must render every published project in deterministic order`,
+  );
+  assertExactCount(
+    rootMarkup,
+    /<img(?:\s|>)/gi,
+    publishedProjects.filter((project) => project.image !== null).length,
+    `${file} must not render image placeholders for null project images`,
+  );
+
+  for (const project of publishedProjects) {
+    const article = findArticleByAttribute(rootMarkup, 'data-project-article-id', project.id);
+    if (!article) throw new Error(`${file} is missing published project article ${project.id}.`);
+    if (!article.includes(`href="#${project.id}"`) || !article.includes(project.title)) {
+      throw new Error(`${file} has a title or deep-link mismatch for ${project.id}.`);
+    }
+    if (!new RegExp(`\\bdata-work-mode="${project.workMode}"`, 'i').test(article)) {
+      throw new Error(`${file} is missing the work-mode contract for ${project.id}.`);
+    }
+
+    assertContainsAll(
+      article,
+      [
+        project.summary,
+        project.role,
+        getProjectWorkModeLabel(project.workMode),
+        ...project.detailedDescription,
+        ...project.technologies,
+        ...project.categories.map(getProjectCategoryLabel),
+        ...project.evidenceResults.flatMap((evidence) => [
+          evidence.label,
+          evidence.value,
+          evidence.method,
+        ]),
+      ],
+      `${file} does not render every approved project field for ${project.id}`,
+    );
+
+    const evidenceList = article.match(
+      /<ul\b[^>]*\bdata-project-evidence=""[^>]*>([\s\S]*?)<\/ul>/i,
+    )?.[1];
+    const evidenceCount = evidenceList ? countMatches(evidenceList, /<li(?:\s|>)/gi) : 0;
+    if (evidenceCount !== project.evidenceResults.length) {
+      throw new Error(`${file} must render every evidence result for ${project.id}.`);
+    }
+    for (const evidence of project.evidenceResults) {
+      const evidenceItem = evidenceList?.match(
+        new RegExp(
+          `<li(?:\\s[^>]*)?>[\\s\\S]*?${escapePattern(evidence.label)}[\\s\\S]*?<\\/li>`,
+          'i',
+        ),
+      )?.[0];
+      if (
+        !evidenceItem ||
+        !evidenceItem.includes(evidence.value) ||
+        !evidenceItem.includes(evidence.method)
+      ) {
+        throw new Error(`${file} has incomplete evidence details for ${project.id}.`);
+      }
+    }
+
+    const actualHrefs = [...article.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi)].map(
+      (match) => match[1],
+    );
+    const expectedHrefs = [
+      `#${project.id}`,
+      ...getProjectArtifactLinks(project).map((link) => link.href),
+    ];
+    if (JSON.stringify(actualHrefs) !== JSON.stringify(expectedHrefs)) {
+      throw new Error(`${file} renders an unapproved, missing or placeholder link for ${project.id}.`);
+    }
+    if (getProjectArtifactLinks(project).length === 0 && /data-project-artifacts/i.test(article)) {
+      throw new Error(`${file} renders an artifact placeholder for ${project.id}.`);
+    }
+  }
+
+  for (const project of projects.filter((record) => record.publicationStatus !== 'published')) {
+    if (
+      rootMarkup.includes(`data-project-article-id="${project.id}"`) ||
+      rootMarkup.includes(project.title)
+    ) {
+      throw new Error(`${file} renders unpublished project ${project.id}.`);
     }
   }
 }
 
 export function assertStaticShell(rootMarkup, contract, file = contract.relativeFile ?? contract.id) {
   assertExactCount(rootMarkup, /class="skip-link"/gi, 1, `${file} must contain one skip link`);
-  assertExactCount(rootMarkup, /<header(?:\s|>)/gi, 1, `${file} must contain one site header`);
+  assertExactCount(
+    rootMarkup,
+    /<header\b(?=[^>]*\bclass="[^"]*\bsite-header\b[^"]*")[^>]*>/gi,
+    1,
+    `${file} must contain one site header`,
+  );
   assertExactCount(rootMarkup, /<main\b[^>]*\bid="main"[^>]*>/gi, 1, `${file} must contain one #main landmark`);
   assertExactCount(rootMarkup, /<h1(?:\s|>)/gi, 1, `${file} must contain exactly one h1`);
-  assertExactCount(rootMarkup, /<footer(?:\s|>)/gi, 1, `${file} must contain one footer`);
+  assertExactCount(
+    rootMarkup,
+    /<footer\b(?=[^>]*\bclass="[^"]*\bsite-footer\b[^"]*")[^>]*>/gi,
+    1,
+    `${file} must contain one site footer`,
+  );
   assertExactCount(
     rootMarkup,
     /<nav\b[^>]*\baria-label="Primary"[^>]*>/gi,
@@ -429,7 +584,10 @@ export function assertStaticShell(rootMarkup, contract, file = contract.relative
   assertExactCount(rootMarkup, /<summary(?:\s|>)/gi, 1, `${file} must contain one disclosure summary`);
 
   const skipLink = rootMarkup.match(/<a\b[^>]*\bclass="skip-link"[^>]*>/i)?.[0] ?? '';
-  if (!/\bhref="#main"/i.test(skipLink) || rootMarkup.indexOf(skipLink) > rootMarkup.search(/<header(?:\s|>)/i)) {
+  if (
+    !/\bhref="#main"/i.test(skipLink) ||
+    rootMarkup.indexOf(skipLink) > rootMarkup.search(/<header\b[^>]*\bsite-header\b/i)
+  ) {
     throw new Error(`${file} skip link must target #main and precede the header.`);
   }
 
@@ -463,7 +621,7 @@ export function assertStaticShell(rootMarkup, contract, file = contract.relative
   }
 
   if (contract.id === 'home') assertHomeNarrative(rootMarkup, file);
-  if (contract.id === 'projects') assertProjectsPlaceholder(rootMarkup, file);
+  if (contract.id === 'projects') assertProjectsNarrative(rootMarkup, file);
 }
 
 export function verifyPageHtml(html, contract, file = contract.relativeFile ?? contract.id) {
@@ -509,16 +667,251 @@ export function assertAllowedArtifactFilename(normalizedName) {
   }
 }
 
+export function normalizeJavaScriptForArtifactReview(source) {
+  const normalized = source.split('');
+  const tokens = [];
+  let index = 0;
+
+  function pushToken(token) {
+    if (token.type !== 'other' || tokens.at(-1)?.type !== 'other') tokens.push(token);
+  }
+
+  function mask(start, end) {
+    for (let cursor = start; cursor < end; cursor += 1) normalized[cursor] = ' ';
+  }
+
+  function scanQuotedString(quote) {
+    const start = index;
+    index += 1;
+
+    while (index < source.length) {
+      const character = source[index];
+      if (character === '\\') {
+        index += 2;
+        continue;
+      }
+      if (character === quote) {
+        const payload = source.slice(start + 1, index);
+        const approvedIcon = APPROVED_ICON_PATHS.has(payload);
+        if (approvedIcon) mask(start + 1, index);
+        index += 1;
+        pushToken({ type: 'string', value: approvedIcon ? '' : payload });
+        return;
+      }
+      if (character === '\n' || character === '\r') break;
+      index += 1;
+    }
+
+    pushToken({ type: 'other' });
+  }
+
+  function scanRegexLiteral() {
+    let cursor = index + 1;
+    let characterClass = false;
+    const quantifiers = [];
+
+    while (cursor < source.length) {
+      const character = source[cursor];
+      if (character === '\n' || character === '\r') return false;
+      if (character === '\\') {
+        cursor += 2;
+        continue;
+      }
+      if (character === '[') {
+        characterClass = true;
+        cursor += 1;
+        continue;
+      }
+      if (character === ']' && characterClass) {
+        characterClass = false;
+        cursor += 1;
+        continue;
+      }
+      if (character === '{' && !characterClass) {
+        const quantifier = source.slice(cursor).match(/^\{\d+(?:,\d*)?\}/)?.[0];
+        if (quantifier) {
+          quantifiers.push([cursor, cursor + quantifier.length]);
+          cursor += quantifier.length;
+          continue;
+        }
+      }
+      if (character === '/' && !characterClass) {
+        for (const [start, end] of quantifiers) mask(start, end);
+        index = cursor + 1;
+        while (/[A-Za-z]/.test(source[index] ?? '')) index += 1;
+        pushToken({ type: 'other' });
+        return true;
+      }
+      cursor += 1;
+    }
+
+    return false;
+  }
+
+  function scanTemplate() {
+    const start = index;
+    let hasInterpolation = false;
+    index += 1;
+
+    while (index < source.length) {
+      const character = source[index];
+      if (character === '\\') {
+        index += 2;
+        continue;
+      }
+      if (character === '`') {
+        const payload = source.slice(start + 1, index);
+        const approvedIcon = !hasInterpolation && APPROVED_ICON_PATHS.has(payload);
+        if (approvedIcon) mask(start + 1, index);
+        index += 1;
+        pushToken(
+          hasInterpolation
+            ? { type: 'other' }
+            : { type: 'string', value: approvedIcon ? '' : payload },
+        );
+        return;
+      }
+      if (character === '$' && source[index + 1] === '{') {
+        hasInterpolation = true;
+        pushToken({ type: 'other' });
+        index += 2;
+        scanCode(true);
+        continue;
+      }
+      index += 1;
+    }
+
+    pushToken({ type: 'other' });
+  }
+
+  function scanCode(stopAtTemplateBrace = false) {
+    let braceDepth = 0;
+    let canStartRegex = true;
+
+    while (index < source.length) {
+      const character = source[index];
+      const next = source[index + 1];
+
+      if (/\s/.test(character)) {
+        index += 1;
+        continue;
+      }
+      if (character === '/' && next === '/') {
+        index += 2;
+        while (index < source.length && !/[\r\n]/.test(source[index])) index += 1;
+        continue;
+      }
+      if (character === '/' && next === '*') {
+        index += 2;
+        while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+          index += 1;
+        }
+        if (index < source.length) index += 2;
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        scanQuotedString(character);
+        canStartRegex = false;
+        continue;
+      }
+      if (character === '`') {
+        scanTemplate();
+        canStartRegex = false;
+        continue;
+      }
+      if (character === '/' && canStartRegex && scanRegexLiteral()) {
+        canStartRegex = false;
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(character)) {
+        const start = index;
+        index += 1;
+        while (/[A-Za-z0-9_$]/.test(source[index] ?? '')) index += 1;
+        const identifier = source.slice(start, index);
+        pushToken({ type: 'other' });
+        canStartRegex = REGEX_PREFIX_KEYWORDS.has(identifier);
+        continue;
+      }
+      if (/\d/.test(character)) {
+        index += 1;
+        while (/[A-Za-z0-9_.]/.test(source[index] ?? '')) index += 1;
+        pushToken({ type: 'other' });
+        canStartRegex = false;
+        continue;
+      }
+      if (character === '{') {
+        braceDepth += 1;
+        index += 1;
+        pushToken({ type: 'other' });
+        canStartRegex = true;
+        continue;
+      }
+      if (character === '}') {
+        if (stopAtTemplateBrace && braceDepth === 0) {
+          index += 1;
+          pushToken({ type: 'other' });
+          return;
+        }
+        braceDepth = Math.max(0, braceDepth - 1);
+        index += 1;
+        pushToken({ type: 'other' });
+        canStartRegex = false;
+        continue;
+      }
+      if (character === '+') {
+        index += 1;
+        pushToken({ type: 'plus' });
+        canStartRegex = true;
+        continue;
+      }
+
+      index += 1;
+      pushToken({ type: 'other' });
+      canStartRegex = /[([,;:?=!~\-*%&|^<>]/.test(character);
+    }
+  }
+
+  scanCode();
+
+  const concatenatedStrings = [];
+  for (let cursor = 0; cursor < tokens.length; cursor += 1) {
+    if (tokens[cursor].type !== 'string') continue;
+    let end = cursor;
+    let value = tokens[cursor].value;
+    while (
+      tokens[end + 1]?.type === 'plus' &&
+      tokens[end + 2]?.type === 'string'
+    ) {
+      value += tokens[end + 2].value;
+      end += 2;
+    }
+    if (end > cursor) concatenatedStrings.push(value);
+    cursor = end;
+  }
+
+  return { content: normalized.join(''), concatenatedStrings };
+}
+
 export function assertPublishSafeArtifactText(content, normalizedName) {
   const extension = extname(normalizedName).toLowerCase();
-  const reviewContent =
+  let reviewContent =
     extension === '.html' || extension === '.svg'
       ? content.replaceAll(/\sd=(["'])([^"']*)\1/gi, (attribute, quote, pathData) =>
           SVG_PATH_DATA_PATTERN.test(pathData) ? ` d=${quote}${quote}` : attribute,
         )
       : content;
-  const rules = inspectArtifactText(reviewContent);
-  if (rules.length > 0) throw new Error(`${rules[0]}: ${normalizedName}`);
+  let additionalReviewContent = [];
+  if (extension === '.js') {
+    const normalizedJavaScript = normalizeJavaScriptForArtifactReview(reviewContent);
+    reviewContent = normalizedJavaScript.content;
+    additionalReviewContent = normalizedJavaScript.concatenatedStrings;
+  }
+  const rules = new Set(inspectArtifactText(reviewContent));
+  for (const value of additionalReviewContent) {
+    for (const rule of inspectArtifactText(value)) rules.add(rule);
+  }
+  const sortedRules = [...rules].sort();
+  if (sortedRules.length > 0) throw new Error(`${sortedRules[0]}: ${normalizedName}`);
 }
 
 async function listFiles(directory) {

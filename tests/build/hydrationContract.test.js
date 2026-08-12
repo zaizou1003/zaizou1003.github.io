@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 
-import { createHydrationMismatchFixture } from '../../scripts/verify-browser.mjs';
+import {
+  createHydrationMismatchFixture,
+  createProjectsHydrationMismatchFixture,
+} from '../../scripts/verify-browser.mjs';
 import { getPrimaryNavigationItems } from '../../src/components/layout/navigation.js';
 import { iconDefinitions, iconNames } from '../../src/components/ui/iconPaths.js';
 
@@ -70,6 +73,55 @@ test('the browser gate creates a deliberate mismatch inside the real hydration i
 
 test('mismatch fixture creation fails closed when the hydration island is absent', () => {
   assert.throws(() => createHydrationMismatchFixture('<main>Home</main>'), /navigation island is missing/i);
+});
+
+test('the browser gate creates a deliberate mismatch inside the Projects island', () => {
+  const html =
+    '<div data-hydrate-projects><section><h2>Published project case studies</h2><p data-project-results-status>Showing 3 of 3 projects.</p></section></div>';
+  const fixture = createProjectsHydrationMismatchFixture(html);
+  assert.match(fixture, /Projects hydration mismatch fixture/);
+  assert.notEqual(fixture, html);
+  assert.throws(
+    () => createProjectsHydrationMismatchFixture('<main>Projects</main>'),
+    /Projects island is missing/i,
+  );
+});
+
+test('Projects uses one explicit hydrateRoot island with authoritative completion', async () => {
+  const [clientEntry, hydrationEntry, explorer] = await Promise.all([
+    readFile(new URL('../../src/entries/projects.client.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/entries/hydrateProjectsExplorer.jsx', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../../src/components/portfolio-projects/ProjectsExplorer.jsx', import.meta.url),
+      'utf8',
+    ),
+  ]);
+
+  assert.match(clientEntry, /hydrateNavigation\('projects'\)/);
+  assert.match(clientEntry, /hydrateProjectsExplorer\(\)/);
+  assert.match(hydrationEntry, /hydrateRoot\s*\(/);
+  assert.match(hydrationEntry, /onRecoverableError/);
+  assert.match(explorer, /useEffect\s*\(\(\)\s*=>/);
+  assert.match(explorer, /if \(onHydrated\?\.\(\) === false\) return undefined/);
+  assert.match(hydrationEntry, /hydrationStatus === ['"]error['"]\) return false/);
+
+  const runtime = `${clientEntry}\n${hydrationEntry}\n${explorer}`;
+  assert.doesNotMatch(runtime, /\bcreateRoot\s*\(/);
+  assert.doesNotMatch(runtime, /suppressHydrationWarning/);
+  assert.doesNotMatch(runtime, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(runtime, /document\.querySelector\(['"]#root['"]\)/);
+});
+
+test('Projects initial render does not read browser state before hydration commits', async () => {
+  const explorer = await readFile(
+    new URL('../../src/components/portfolio-projects/ProjectsExplorer.jsx', import.meta.url),
+    'utf8',
+  );
+  const firstEffect = explorer.indexOf('useEffect(() => {');
+  assert.ok(firstEffect > 0);
+  assert.equal(explorer.slice(0, firstEffect).includes('window.'), false);
+  assert.match(explorer.slice(firstEffect), /window\.location\.search/);
+  assert.match(explorer.slice(firstEffect), /window\.addEventListener\(['"]popstate['"]/);
 });
 
 test('primary navigation uses local anchors on Home and root-form anchors on Projects', () => {
