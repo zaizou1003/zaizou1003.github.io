@@ -2,14 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  FLAGSHIP_PROJECTS,
   portfolioData,
+  selectCapabilities,
   selectFeaturedCertifications,
+  selectFeaturedProjects,
   selectPublishedEducation,
   selectPublishedExperience,
   selectPublishedProjects,
+  selectPublishedSkillGroups,
+  selectSelectedWorkProjects,
   selectSkillGroups,
   validatePortfolioData,
 } from '../../src/data/index.js';
+import { formatMonthRange, formatMonthYear, formatYearRange } from '../../src/utils/dates.js';
 
 test('selectors are deterministic and do not mutate their inputs', () => {
   const projects = structuredClone(portfolioData.projects).reverse();
@@ -21,7 +27,15 @@ test('selectors are deterministic and do not mutate their inputs', () => {
     JSON.stringify(value),
   );
 
-  assert.deepEqual(selectPublishedProjects(projects), []);
+  assert.deepEqual(
+    selectPublishedProjects(projects).map((record) => record.id),
+    FLAGSHIP_PROJECTS.map((record) => record.id),
+  );
+  assert.deepEqual(
+    selectFeaturedProjects(projects).map((record) => record.featuredOrder),
+    [1, 2, 3],
+  );
+  assert.deepEqual(selectSelectedWorkProjects(projects), []);
   assert.deepEqual(
     selectPublishedExperience(experience).map((record) => record.employer),
     ['Ayming', 'VroomVroom'],
@@ -43,6 +57,30 @@ test('selectors are deterministic and do not mutate their inputs', () => {
     [projects, experience, skills, certifications, education].map((value) => JSON.stringify(value)),
     snapshots,
   );
+});
+
+test('homepage capability and evidence-backed skill selectors are exact and deterministic', () => {
+  assert.deepEqual(
+    selectCapabilities(structuredClone(portfolioData.capabilities).reverse()).map(
+      (capability) => capability.displayOrder,
+    ),
+    [1, 2, 3, 4],
+  );
+  assert.deepEqual(
+    selectPublishedSkillGroups(
+      structuredClone(portfolioData.skills).reverse(),
+      portfolioData.projects,
+      portfolioData.experience,
+    ).map((group) => group.id),
+    portfolioData.skills.map((group) => group.id),
+  );
+});
+
+test('homepage date formatting is deterministic and locale-independent', () => {
+  assert.equal(formatMonthYear('2026-07'), 'July 2026');
+  assert.equal(formatMonthRange('2025-10', null), 'October 2025–present');
+  assert.equal(formatMonthRange('2025-06', '2025-08'), 'June 2025–August 2025');
+  assert.equal(formatYearRange('2024', '2026'), '2024–2026');
 });
 
 test('broken project evidence references fail validation', () => {

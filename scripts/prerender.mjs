@@ -51,6 +51,10 @@ try {
     }
 
     const markup = serverModule.renderPage(page.id);
+    const repeatedMarkup = serverModule.renderPage(page.id);
+    if (markup !== repeatedMarkup) {
+      throw new Error(`Static render for ${page.id} is not deterministic.`);
+    }
     assertRenderableMarkup(page.id, markup);
     const html = template.replace(injectionMarker, markup);
     const injectedMarkup = extractRootMarkup(html, page.output);

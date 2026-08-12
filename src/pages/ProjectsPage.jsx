@@ -5,9 +5,17 @@ import { profile } from '../data/profile.js';
 
 export function ProjectsPage() {
   return (
-    <SiteShell currentPage="projects" pageId="projects">
-      <section className="page-intro container" aria-labelledby="projects-title">
+    <SiteShell currentPage="projects" pageId="projects" profile={profile}>
+      <section
+        className="page-intro container"
+        aria-labelledby="projects-title"
+        data-projects-placeholder=""
+      >
         <SectionHeading as="h1" eyebrow={profile.name} id="projects-title" title="Projects" />
+        <p className="page-intro__summary">
+          This page retains its reviewed static shell. Published project articles and filtering are
+          intentionally deferred to the next milestone.
+        </p>
         <p className="page-actions">
           <LinkButton href="/" variant="secondary">
             Home

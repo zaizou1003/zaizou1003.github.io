@@ -1,10 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 
 import { createHydrationMismatchFixture } from '../../scripts/verify-browser.mjs';
 import { getPrimaryNavigationItems } from '../../src/components/layout/navigation.js';
 import { iconDefinitions, iconNames } from '../../src/components/ui/iconPaths.js';
+
+const CLEAN_RUNTIME_PATHS = Object.freeze([
+  '../../src/entries/',
+  '../../src/pages/HomePage.jsx',
+  '../../src/pages/ProjectsPage.jsx',
+  '../../src/components/layout/',
+  '../../src/components/ui/',
+  '../../src/components/sections/',
+  '../../src/components/content/',
+  '../../src/components/experience/',
+  '../../src/components/portfolio-projects/',
+]);
+
+async function readRuntimeSources(url) {
+  if (!url.pathname.endsWith('/')) return [[url.pathname, await readFile(url, 'utf8')]];
+  const entries = await readdir(url, { withFileTypes: true });
+  const sources = await Promise.all(
+    entries.map((entry) => {
+      const child = new URL(entry.isDirectory() ? `${entry.name}/` : entry.name, url);
+      return entry.isDirectory()
+        ? readRuntimeSources(child)
+        : /\.(?:js|jsx)$/.test(entry.name)
+          ? readRuntimeSources(child)
+          : [];
+    }),
+  );
+  return sources.flat();
+}
 
 function readHexToken(css, tokenName) {
   const match = css.match(new RegExp(`--${tokenName}:\\s*(#[0-9a-f]{6})\\s*;`, 'i'));
@@ -78,6 +106,34 @@ test('the curated inline icon catalogue contains only the approved five icons', 
   }
 });
 
+test('the clean redesign runtime never imports from the legacy capitalized Projects directory', async () => {
+  const sources = (
+    await Promise.all(
+      CLEAN_RUNTIME_PATHS.map((path) => readRuntimeSources(new URL(path, import.meta.url))),
+    )
+  ).flat();
+  const featuredProjectsSource = sources.find(([path]) =>
+    path.endsWith('/components/sections/FeaturedProjects.jsx'),
+  )?.[1];
+
+  assert.ok(featuredProjectsSource, 'Expected the production FeaturedProjects source to be scanned');
+  assert.match(
+    featuredProjectsSource,
+    /from ['"]\.\.\/portfolio-projects\/FeaturedProjectCard\.jsx['"]/,
+  );
+
+  for (const [path, source] of sources) {
+    const importSpecifiers = [
+      ...source.matchAll(/(?:from\s+|import\s*\()\s*['"]([^'"]+)['"]/g),
+    ].map((match) => match[1]);
+    assert.equal(
+      importSpecifiers.some((specifier) => specifier.split(/[\\/]/).includes('Projects')),
+      false,
+      `${path} imports from the tracked legacy Projects directory`,
+    );
+  }
+});
+
 test('design tokens and global CSS preserve focus, target-size and reduced-motion contracts', async () => {
   const [tokens, global] = await Promise.all([
     readFile(new URL('../../src/styles/tokens.css', import.meta.url), 'utf8'),
@@ -137,7 +193,7 @@ test('interactive borders meet 3:1 contrast while decorative borders retain thei
     approvedSurfaces.map((surface) => Number(contrastRatio(controlBorder, surface).toFixed(4))),
     [3.8895, 3.5493, 3.1991],
   );
-  assert.equal(global.match(/var\(--color-control-border\)/g)?.length, 2);
+  assert.equal(global.match(/var\(--color-control-border\)/g)?.length, 3);
   assert.match(
     global,
     /\.site-nav__summary\s*\{[^}]*border:\s*1px solid var\(--color-control-border\)/s,
@@ -145,6 +201,10 @@ test('interactive borders meet 3:1 contrast while decorative borders retain thei
   assert.match(
     global,
     /\.link-button--secondary\s*\{[^}]*border-color:\s*var\(--color-control-border\)/s,
+  );
+  assert.match(
+    global,
+    /\.home-contact-link\s*\{[^}]*border:\s*1px solid var\(--color-control-border\)/s,
   );
   for (const selector of ['surface', 'site-header', 'site-nav__list--mobile', 'tag-list__item', 'site-footer']) {
     const escapedSelector = selector.replaceAll('-', '\\-');

@@ -1,3 +1,4 @@
+import { capabilities } from './capabilities.js';
 import { certifications } from './certifications.js';
 import { education } from './education.js';
 import { experience } from './experience.js';
@@ -6,6 +7,7 @@ import { projects } from './projects.js';
 import { skills } from './skills.js';
 import { deepFreeze } from './schemas.js';
 
+export { capabilities } from './capabilities.js';
 export { certifications } from './certifications.js';
 export { education } from './education.js';
 export { experience } from './experience.js';
@@ -17,6 +19,7 @@ export * from './selectors.js';
 
 export const portfolioData = deepFreeze({
   profile,
+  capabilities,
   projects,
   experience,
   skills,

@@ -2,8 +2,23 @@ import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPrimaryNavigationItems } from '../src/components/layout/navigation.js';
+import { capabilities } from '../src/data/capabilities.js';
+import { certifications } from '../src/data/certifications.js';
+import { education } from '../src/data/education.js';
+import { experience } from '../src/data/experience.js';
 import { profile } from '../src/data/profile.js';
 import { projects } from '../src/data/projects.js';
+import { assertSafeUrl } from '../src/data/schemas.js';
+import {
+  selectCapabilities,
+  selectFeaturedCertifications,
+  selectFeaturedProjects,
+  selectPublishedEducation,
+  selectPublishedExperience,
+  selectPublishedSkillGroups,
+} from '../src/data/selectors.js';
+import { skills } from '../src/data/skills.js';
+import { formatMonthRange, formatMonthYear, formatYearRange } from '../src/utils/dates.js';
 import { inspectArtifactText } from '../src/validation/privacy.js';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +30,18 @@ export const ROOT_END_SENTINEL = '<!--app-root-end-->';
 export const DEFAULT_PAGE_CONTRACTS = Object.freeze([
   { id: 'home', relativeFile: 'index.html', heading: 'Ahmed Aziz Ben Aissa' },
   { id: 'projects', relativeFile: 'projects/index.html', heading: 'Projects' },
+]);
+
+export const HOME_SECTION_ORDER = Object.freeze([
+  'hero',
+  'capabilities',
+  'featured-projects',
+  'experience',
+  'selected-work',
+  'skills',
+  'certifications',
+  'education',
+  'contact',
 ]);
 
 const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
@@ -54,6 +81,30 @@ function escapePattern(value) {
 function assertExactCount(source, expression, expected, message) {
   const count = countMatches(source, expression);
   if (count !== expected) throw new Error(`${message}; found ${count}.`);
+}
+
+function assertOrderedAttribute(source, attribute, expectedValues, message) {
+  const expression = new RegExp(`\\b${attribute}="([^"]+)"`, 'gi');
+  const actualValues = [...source.matchAll(expression)].map((match) => match[1]);
+  if (JSON.stringify(actualValues) !== JSON.stringify(expectedValues)) {
+    throw new Error(`${message}; found ${actualValues.join(', ') || 'none'}.`);
+  }
+}
+
+function assertContainsAll(source, expectedValues, message) {
+  const missing = expectedValues.filter((value) => !source.includes(value));
+  if (missing.length > 0) {
+    throw new Error(`${message}; ${missing.length} approved value(s) are missing.`);
+  }
+}
+
+function findArticleByAttribute(source, attribute, value) {
+  return source.match(
+    new RegExp(
+      `<article\\b(?=[^>]*\\b${attribute}="${escapePattern(value)}")[^>]*>[\\s\\S]*?<\\/article>`,
+      'i',
+    ),
+  )?.[0];
 }
 
 function visibleText(markup) {
@@ -106,6 +157,262 @@ export function extractRootMarkup(html, file = 'HTML document') {
   return html.slice(contentStart, closing.start);
 }
 
+export function assertHomeNarrative(rootMarkup, file = 'index.html') {
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-home-section',
+    HOME_SECTION_ORDER,
+    `${file} must preserve the exact homepage section order`,
+  );
+  for (const sectionId of HOME_SECTION_ORDER.slice(1)) {
+    assertExactCount(
+      rootMarkup,
+      new RegExp(`<section\\b(?=[^>]*\\bid="${escapePattern(sectionId)}")[^>]*>`, 'gi'),
+      1,
+      `${file} must contain one stable #${sectionId} section`,
+    );
+  }
+  if (
+    !rootMarkup.includes(profile.valueProposition) ||
+    !rootMarkup.includes(profile.role) ||
+    !rootMarkup.includes(profile.summary)
+  ) {
+    throw new Error(`${file} is missing the approved homepage role or narrative.`);
+  }
+  assertExactCount(rootMarkup, /<img(?:\s|>)/gi, 0, `${file} must remain text-first in Milestone 4`);
+
+  for (const [, href] of rootMarkup.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi)) {
+    if (/^(?:https:|mailto:)/i.test(href)) {
+      assertSafeUrl(href, `${file} rendered link`, { allowMailto: href.startsWith('mailto:') });
+    }
+  }
+
+  const publishedFeatured = selectFeaturedProjects(projects);
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-featured-project-id',
+    publishedFeatured.map((project) => project.id),
+    `${file} must render the exact published flagship order`,
+  );
+  for (const project of publishedFeatured) {
+    const article = findArticleByAttribute(rootMarkup, 'data-featured-project-id', project.id);
+    if (!article) throw new Error(`${file} is missing the ${project.id} flagship article.`);
+    if (!new RegExp(`<h3(?:\\s[^>]*)?>${escapePattern(project.title)}<\\/h3>`, 'i').test(article)) {
+      throw new Error(`${file} has a title mismatch for flagship ${project.id}.`);
+    }
+    if (!new RegExp(`\\bdata-work-mode="${project.workMode}"`, 'i').test(article)) {
+      throw new Error(`${file} is missing the work-mode contract for ${project.id}.`);
+    }
+    const evidenceList = article.match(
+      /<ul\b[^>]*\bdata-project-evidence=""[^>]*>([\s\S]*?)<\/ul>/i,
+    )?.[1];
+    const evidenceCount = evidenceList ? countMatches(evidenceList, /<li(?:\s|>)/gi) : 0;
+    if (evidenceCount < 2 || evidenceCount > 3) {
+      throw new Error(`${file} must render two or three evidence results for ${project.id}.`);
+    }
+    assertContainsAll(
+      article,
+      [
+        project.summary,
+        project.role,
+        ...project.detailedDescription,
+        ...project.evidenceResults
+          .slice(0, 3)
+          .flatMap((evidence) => [evidence.label, evidence.value, evidence.method]),
+        ...project.technologies,
+      ],
+      `${file} does not render the complete approved homepage facts for ${project.id}`,
+    );
+    const expectedWorkLabel =
+      project.workMode === 'individual'
+        ? 'Individual work by Ahmed'
+        : 'Team work with Ahmed’s contribution stated below';
+    if (!article.includes(expectedWorkLabel)) {
+      throw new Error(`${file} is missing the explicit work-status label for ${project.id}.`);
+    }
+    const actualArtifactHrefs = [...article.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi)].map(
+      (match) => match[1],
+    );
+    const expectedArtifactHrefs = [project.repositoryUrl, project.demoPaperUrl].filter(Boolean);
+    if (JSON.stringify(actualArtifactHrefs) !== JSON.stringify(expectedArtifactHrefs)) {
+      throw new Error(`${file} renders an unapproved or missing artifact link for ${project.id}.`);
+    }
+    if (project.repositoryUrl) {
+      const repositoryPattern = new RegExp(
+        `\\bhref="${escapePattern(project.repositoryUrl)}"`,
+        'i',
+      );
+      if (!repositoryPattern.test(article)) {
+        throw new Error(`${file} is missing the approved repository for ${project.id}.`);
+      }
+    } else if (/data-project-artifacts/i.test(article)) {
+      throw new Error(`${file} renders an artifact placeholder for ${project.id}.`);
+    }
+  }
+  for (const project of projects.filter((record) => record.publicationStatus !== 'published')) {
+    if (rootMarkup.includes(`data-featured-project-id="${project.id}"`)) {
+      throw new Error(`${file} renders unpublished project ${project.id}.`);
+    }
+  }
+  const featuredProjectMarkup = publishedFeatured
+    .map((project) => findArticleByAttribute(rootMarkup, 'data-featured-project-id', project.id))
+    .join('');
+  if (/vroomvroom/i.test(featuredProjectMarkup)) {
+    throw new Error(`${file} represents VroomVroom inside personal project content.`);
+  }
+
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-capability-id',
+    selectCapabilities(capabilities).map((capability) => capability.id),
+    `${file} must render the four approved capability groups`,
+  );
+  for (const capability of selectCapabilities(capabilities)) {
+    const article = findArticleByAttribute(rootMarkup, 'data-capability-id', capability.id);
+    if (!article) throw new Error(`${file} is missing capability ${capability.id}.`);
+    assertContainsAll(
+      article,
+      [capability.title, capability.description, ...capability.evidenceProjectIds],
+      `${file} does not render the complete approved capability ${capability.id}`,
+    );
+  }
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-experience-id',
+    selectPublishedExperience(experience).map((record) => record.id),
+    `${file} must render approved professional experience newest first`,
+  );
+  for (const record of selectPublishedExperience(experience)) {
+    const article = findArticleByAttribute(rootMarkup, 'data-experience-id', record.id);
+    if (!article) throw new Error(`${file} is missing professional experience ${record.id}.`);
+    assertContainsAll(
+      article,
+      [
+        record.employer,
+        record.roleTitle,
+        formatMonthRange(record.startDate, record.endDate),
+        record.summary,
+        ...record.highlights,
+        ...record.technologies,
+        ...(record.confidentialityNote ? [record.confidentialityNote] : []),
+      ],
+      `${file} does not render the complete approved experience ${record.id}`,
+    );
+    if (/<a\b/i.test(article)) {
+      throw new Error(`${file} must not render an employer repository or artifact link for ${record.id}.`);
+    }
+  }
+  if (/60\s*(?:%|percent|per-?cent)|sixty[-\s]?per-?cent/i.test(rootMarkup)) {
+    throw new Error(`${file} contains the unapproved Ayming metric.`);
+  }
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-skill-group-id',
+    selectPublishedSkillGroups(skills, projects, experience).map((group) => group.id),
+    `${file} must render only evidence-backed skill groups`,
+  );
+  for (const group of selectPublishedSkillGroups(skills, projects, experience)) {
+    const article = findArticleByAttribute(rootMarkup, 'data-skill-group-id', group.id);
+    if (!article) throw new Error(`${file} is missing skill group ${group.id}.`);
+    assertContainsAll(
+      article,
+      [group.title, ...group.skills.map((skill) => skill.name)],
+      `${file} does not render the evidence-backed skills for ${group.id}`,
+    );
+  }
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-certification-id',
+    selectFeaturedCertifications(certifications).map((record) => record.id),
+    `${file} must render the exact certification order`,
+  );
+  for (const record of selectFeaturedCertifications(certifications)) {
+    const article = findArticleByAttribute(rootMarkup, 'data-certification-id', record.id);
+    if (!article) throw new Error(`${file} is missing certification ${record.id}.`);
+    assertContainsAll(
+      article,
+      [record.title, record.issuer],
+      `${file} does not render the approved certification ${record.id}`,
+    );
+    const certificationDates = [
+      formatMonthYear(record.issuedDate),
+      ...(record.expiresDate ? [formatMonthYear(record.expiresDate)] : []),
+    ];
+    assertContainsAll(
+      article,
+      certificationDates,
+      `${file} does not render the approved certification dates for ${record.id}`,
+    );
+    if (record.credentialUrl === null && /<a\b/i.test(article)) {
+      throw new Error(`${file} renders an unapproved credential link for ${record.id}.`);
+    }
+  }
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-education-id',
+    selectPublishedEducation(education).map((record) => record.id),
+    `${file} must render the approved education order`,
+  );
+  for (const record of selectPublishedEducation(education)) {
+    const article = findArticleByAttribute(rootMarkup, 'data-education-id', record.id);
+    if (!article) throw new Error(`${file} is missing education ${record.id}.`);
+    assertContainsAll(
+      article,
+      [record.institution, record.program, formatYearRange(record.startDate, record.endDate), record.location],
+      `${file} does not render the approved education facts for ${record.id}`,
+    );
+  }
+  assertOrderedAttribute(
+    rootMarkup,
+    'data-home-contact-kind',
+    ['email', 'linkedin', 'github'],
+    `${file} must render exactly the three approved homepage contacts`,
+  );
+  for (const link of Object.values(profile.links)) {
+    const homeContactPattern = new RegExp(
+      `<a\\b(?=[^>]*\\bdata-home-contact-kind="${escapePattern(link.kind)}")(?=[^>]*\\bhref="${escapePattern(link.href)}")[^>]*>`,
+      'i',
+    );
+    if (!homeContactPattern.test(rootMarkup)) {
+      throw new Error(`${file} is missing the approved homepage ${link.label} destination.`);
+    }
+  }
+  assertExactCount(
+    rootMarkup,
+    /data-selected-work-state="evidence-review"/gi,
+    1,
+    `${file} must contain the selected-work evidence-review state`,
+  );
+  if (
+    !rootMarkup.includes(
+      'Only evidence-reviewed work is published here; additional technical case studies remain under validation.',
+    )
+  ) {
+    throw new Error(`${file} is missing the approved selected-work publication statement.`);
+  }
+  assertExactCount(rootMarkup, /<form(?:\s|>)/gi, 0, `${file} must not contain a contact form`);
+}
+
+export function assertProjectsPlaceholder(rootMarkup, file = 'projects/index.html') {
+  assertExactCount(
+    rootMarkup,
+    /data-projects-placeholder=""/gi,
+    1,
+    `${file} must retain one explicit Projects placeholder`,
+  );
+  assertExactCount(
+    rootMarkup,
+    /data-featured-project-id=/gi,
+    0,
+    `${file} must not render flagship project articles during Milestone 4`,
+  );
+  for (const project of projects) {
+    if (rootMarkup.includes(project.id) || rootMarkup.includes(project.title)) {
+      throw new Error(`${file} renders project record ${project.id} before Milestone 5.`);
+    }
+  }
+}
+
 export function assertStaticShell(rootMarkup, contract, file = contract.relativeFile ?? contract.id) {
   assertExactCount(rootMarkup, /class="skip-link"/gi, 1, `${file} must contain one skip link`);
   assertExactCount(rootMarkup, /<header(?:\s|>)/gi, 1, `${file} must contain one site header`);
@@ -155,11 +462,8 @@ export function assertStaticShell(rootMarkup, contract, file = contract.relative
     }
   }
 
-  for (const project of projects) {
-    if (rootMarkup.includes(project.title)) {
-      throw new Error(`${file} renders a publication-gated project during Milestone 3.`);
-    }
-  }
+  if (contract.id === 'home') assertHomeNarrative(rootMarkup, file);
+  if (contract.id === 'projects') assertProjectsPlaceholder(rootMarkup, file);
 }
 
 export function verifyPageHtml(html, contract, file = contract.relativeFile ?? contract.id) {

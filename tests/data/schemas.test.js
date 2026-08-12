@@ -7,7 +7,7 @@ function cloneData() {
   return structuredClone(portfolioData);
 }
 
-test('the approved Milestone 2 dataset satisfies every schema', () => {
+test('the approved Milestone 4 dataset satisfies every schema', () => {
   assert.equal(validatePortfolioData(portfolioData), true);
 });
 
@@ -45,22 +45,37 @@ test('experience and certification dates are validated', async (context) => {
   });
 });
 
-test('published projects require approved images and evidence method notes', async (context) => {
-  await context.test('missing image metadata fails', () => {
+test('published projects permit text-first cards and retain strict non-null image validation', async (context) => {
+  await context.test('a null image is valid for every published flagship', () => {
     const data = cloneData();
-    data.projects[0].publicationStatus = 'published';
-    assert.throws(() => validatePortfolioData(data), /approved image metadata/i);
+    assert.ok(data.projects.every((project) => project.image === null));
+    assert.equal(validatePortfolioData(data), true);
   });
 
-  await context.test('missing evidence fails', () => {
+  await context.test('a remote non-null image fails', () => {
     const data = cloneData();
-    data.projects[0].publicationStatus = 'published';
     data.projects[0].image = {
-      src: '/images/projects/air-quality.webp',
+      src: 'https://example.com/project.webp',
       alt: 'Approved project evidence image',
       width: 1200,
       height: 675,
     };
+    assert.throws(() => validatePortfolioData(data), /approved local image path/i);
+  });
+
+  await context.test('missing non-null image metadata fails', () => {
+    const data = cloneData();
+    data.projects[0].image = {
+      src: '/images/projects/air-quality.webp',
+      alt: '',
+      width: 1200,
+      height: 675,
+    };
+    assert.throws(() => validatePortfolioData(data), /alternative text/i);
+  });
+
+  await context.test('missing evidence fails', () => {
+    const data = cloneData();
     data.projects[0].evidenceResults = [];
     assert.throws(() => validatePortfolioData(data), /approved evidence/i);
   });

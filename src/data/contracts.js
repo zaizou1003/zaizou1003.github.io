@@ -12,7 +12,7 @@ export const APPROVED_PROFILE_CONTRACT = freezeContract({
   valueProposition:
     'I design and evaluate reliable AI systems that connect agents, tools, retrieval, and production workflows.',
   summary:
-    'I design and evaluate reliable AI systems that connect agents, tools, retrieval, and production workflows.',
+    'My work connects applied AI research with responsible-AI practice, measurable evaluation, explicit safety boundaries and operational reliability.',
   focusAreas: [
     'Agentic AI',
     'MCP systems',
@@ -41,6 +41,47 @@ export const APPROVED_PROFILE_CONTRACT = freezeContract({
   },
 });
 
+export const APPROVED_CAPABILITY_CONTRACTS = freezeContract([
+  {
+    id: 'agents-tool-protocols',
+    title: 'Agents and tool protocols',
+    description:
+      'Agent orchestration and MCP tool integration grounded in reviewed individual project implementations.',
+    evidenceProjectIds: [
+      'european-air-quality-evidence-agent',
+      'metamind-responsible-ai-learning-companion',
+    ],
+    displayOrder: 1,
+  },
+  {
+    id: 'retrieval-evidence',
+    title: 'Retrieval and evidence',
+    description:
+      'Retrieval-augmented generation, source grounding and evidence validation for research workflows.',
+    evidenceProjectIds: ['european-air-quality-evidence-agent'],
+    displayOrder: 2,
+  },
+  {
+    id: 'research-evaluation',
+    title: 'Research and evaluation',
+    description:
+      'Reproducible experiments, multi-seed evaluation and responsible-AI assessment with explicit limitations.',
+    evidenceProjectIds: [
+      'finrl-deepseek-research-extension',
+      'metamind-responsible-ai-learning-companion',
+    ],
+    displayOrder: 3,
+  },
+  {
+    id: 'production-reliability',
+    title: 'Production reliability',
+    description:
+      'Security controls, explicit evaluation boundaries and production-oriented AI system design.',
+    evidenceProjectIds: ['european-air-quality-evidence-agent'],
+    displayOrder: 4,
+  },
+]);
+
 export const APPROVED_PROJECT_CONTRACTS = freezeContract([
   {
     id: 'european-air-quality-evidence-agent',
@@ -58,9 +99,18 @@ export const APPROVED_PROJECT_CONTRACTS = freezeContract([
     categories: ['agentic-ai', 'mcp', 'rag', 'responsible-ai', 'production-ai'],
     evidenceResults: [
       {
-        label: 'Verified implementation themes',
-        value:
-          'MCP tool integration; retrieval and evidence grounding; evidence validation; security controls; evaluation.',
+        label: 'Agent and retrieval integration',
+        value: 'MCP tool integration connects retrieval with evidence grounding.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Evidence controls',
+        value: 'Evidence validation and security controls are part of the reviewed implementation.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Evaluation boundary',
+        value: 'Evaluation is in scope; no quantitative performance result is claimed.',
         method: 'Implementation-scope review; no numeric outcome is claimed.',
       },
     ],
@@ -89,6 +139,16 @@ export const APPROVED_PROJECT_CONTRACTS = freezeContract([
         method: 'Deterministic EP90 historical backtest.',
       },
       {
+        label: 'Ten-seed stochastic mean annual return',
+        value: '16.843% ± 3.517%',
+        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
+      },
+      {
+        label: 'Ten-seed stochastic mean maximum drawdown',
+        value: '−25.921% ± 1.671%',
+        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
+      },
+      {
         label: 'Deterministic total return',
         value: '119.86%',
         method: 'Deterministic EP90 historical backtest.',
@@ -99,18 +159,8 @@ export const APPROVED_PROJECT_CONTRACTS = freezeContract([
         method: 'Deterministic EP90 historical backtest.',
       },
       {
-        label: 'Ten-seed stochastic mean annual return',
-        value: '16.843% ± 3.517%',
-        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
-      },
-      {
         label: 'Ten-seed stochastic mean Sharpe ratio',
         value: '0.878 ± 0.173',
-        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
-      },
-      {
-        label: 'Ten-seed stochastic mean maximum drawdown',
-        value: '−25.921% ± 1.671%',
         method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
       },
     ],
@@ -133,9 +183,20 @@ export const APPROVED_PROJECT_CONTRACTS = freezeContract([
     categories: ['agentic-ai', 'responsible-ai'],
     evidenceResults: [
       {
-        label: 'Verified implementation',
+        label: 'Multi-agent architecture',
         value:
-          'Planner agent; Socratic tutor; learning-signal extractor; fairness reviewer; controller and state transitions; SQLite persistence; CLI; Streamlit interface.',
+          'Planner agent; Socratic tutor; learning-signal extractor; fairness reviewer; controller and state transitions.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Persistent learner state',
+        value: 'SQLite persistence supports learner state and learning history across sessions.',
+        method: 'Implementation-scope review of the CLI and Streamlit interfaces.',
+      },
+      {
+        label: 'Responsible-AI boundary',
+        value:
+          'Fairness audits are user-triggered; learning effectiveness and fairness outcomes remain not evaluated.',
         method:
           'Implementation-scope review; no learning-effectiveness or fairness-outcome result is claimed.',
       },

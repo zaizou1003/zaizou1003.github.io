@@ -157,7 +157,7 @@ Build-time data validation must fail when:
 - orders are not uniquely `[1, 2, 3]`;
 - the titles/order differ from the locked list;
 - an evidence claim lacks an approved source/method note; or
-- a required image lacks alt text and dimensions.
+- a non-null image lacks an approved local source, alt text, or intrinsic dimensions.
 
 ### 5. Professional experience
 
@@ -355,7 +355,7 @@ zaizou1003.github.io/
 │   │   │   ├── Certifications.jsx
 │   │   │   ├── Education.jsx
 │   │   │   └── ContactLinks.jsx
-│   │   ├── projects/
+│   │   ├── portfolio-projects/
 │   │   │   ├── FeaturedProjectCard.jsx
 │   │   │   ├── ProjectArticle.jsx
 │   │   │   ├── ProjectFilters.jsx
@@ -521,7 +521,7 @@ Project = {
   }>,
   repositoryUrl: string | null,
   demoPaperUrl: string | null,
-  image: Image,
+  image: Image | null,         // text-first until approved Milestone 6 evidence imagery exists
   featuredOrder: 1 | 2 | 3 | null,
   publicationStatus: PublicationStatus
 }
@@ -536,6 +536,7 @@ Project rules:
 - An individual project uses `workMode: 'individual'`; team records explain Ahmed's contribution in `role`.
 - Evidence/result text states the method and does not imply causality or performance unsupported by a reproducible artifact.
 - `repositoryUrl: null` renders no repository button. Never use a placeholder or private/employer URL.
+- `image: null` is valid for a published text-first project. Every non-null image still requires an approved local path, meaningful alt text, intrinsic dimensions, and safe responsive-source metadata.
 - `demoPaperUrl` may represent one approved primary artifact. If separate demo and paper links are needed later, migrate to a typed `artifacts[]` array through a documented schema version.
 - Signed/time-limited URLs, token-like query parameters, URL shorteners, and unapproved remote images fail validation.
 
@@ -879,6 +880,7 @@ At implementation time, use the current official Actions majors or, preferably, 
 - Inspect screenshots for tokens, signed URLs, private datasets, employer/client identifiers, notifications, and personal information before commit.
 - Do not migrate the 89 MB GLB or any MyMind asset. Do not use the large View All image; use a text link/card.
 - Certification cards are text-first. Recovered certificate images remain excluded until an explicit privacy/credential-ID/QR review approves a replacement.
+- Published project cards may remain text-first with `image: null` until approved, optimized Milestone 6 evidence imagery is available; no placeholder or recovered image is required for publication.
 - Alt text describes the meaningful visual evidence, not the project title alone. Decorative images use empty alt.
 
 ## 15. Testing strategy

@@ -6,7 +6,7 @@ export const profile = deepFreeze({
   valueProposition:
     'I design and evaluate reliable AI systems that connect agents, tools, retrieval, and production workflows.',
   summary:
-    'I design and evaluate reliable AI systems that connect agents, tools, retrieval, and production workflows.',
+    'My work connects applied AI research with responsible-AI practice, measurable evaluation, explicit safety boundaries and operational reliability.',
   focusAreas: [
     'Agentic AI',
     'MCP systems',

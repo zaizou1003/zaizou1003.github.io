@@ -1,4 +1,5 @@
 import {
+  APPROVED_CAPABILITY_CONTRACTS,
   APPROVED_CERTIFICATION_CONTRACTS,
   APPROVED_EDUCATION_CONTRACTS,
   APPROVED_EXPERIENCE_CONTRACTS,
@@ -327,6 +328,45 @@ export function assertProfile(profile) {
   assertApprovedFields(profile, APPROVED_PROFILE_CONTRACT, 'profile');
 }
 
+function assertCapabilities(capabilities, projects) {
+  if (!Array.isArray(capabilities) || capabilities.length !== APPROVED_CAPABILITY_CONTRACTS.length) {
+    fail('capabilities must contain exactly the four approved groups.');
+  }
+  assertUniqueIds(capabilities, 'capabilities');
+  const publishedProjectIds = new Set(
+    projects
+      .filter((project) => project.publicationStatus === 'published')
+      .map((project) => project.id),
+  );
+  const displayOrders = new Set();
+
+  capabilities.forEach((capability, index) => {
+    const path = `capabilities[${index}]`;
+    assertAllowedKeys(
+      capability,
+      ['id', 'title', 'description', 'evidenceProjectIds', 'displayOrder'],
+      path,
+    );
+    assertString(capability.title, `${path}.title`);
+    assertString(capability.description, `${path}.description`);
+    assertStringArray(capability.evidenceProjectIds, `${path}.evidenceProjectIds`);
+    if (!Number.isInteger(capability.displayOrder) || capability.displayOrder <= 0) {
+      fail(`${path}.displayOrder must be a positive integer.`);
+    }
+    if (displayOrders.has(capability.displayOrder)) {
+      fail('capabilities contains duplicate display orders.');
+    }
+    displayOrders.add(capability.displayOrder);
+    for (const projectId of capability.evidenceProjectIds) {
+      if (!publishedProjectIds.has(projectId)) {
+        fail(`${path} requires published project evidence for ${projectId}.`);
+      }
+    }
+  });
+
+  assertApprovedFields(capabilities, APPROVED_CAPABILITY_CONTRACTS, 'capabilities');
+}
+
 export function assertProject(project, path = `projects.${project?.id ?? 'unknown'}`) {
   assertAllowedKeys(
     project,
@@ -403,7 +443,6 @@ export function assertProject(project, path = `projects.${project?.id ?? 'unknow
 
   if (project.image !== null) assertImage(project.image, `${path}.image`, { requireAlt: true });
   if (project.publicationStatus === 'published') {
-    if (project.image === null) fail(`${path} cannot be published without approved image metadata.`);
     if (project.evidenceResults.length === 0) fail(`${path} cannot be published without approved evidence.`);
     if (!project.role.trim() || !project.workMode) {
       fail(`${path} cannot be published without complete role and work-mode information.`);
@@ -506,6 +545,16 @@ function assertSkillGroups(skillGroups, projects, experiences) {
   const displayOrders = new Set();
   const projectIds = new Set(projects.map((project) => project.id));
   const experienceIds = new Set(experiences.map((experience) => experience.id));
+  const publishedProjectIds = new Set(
+    projects
+      .filter((project) => project.publicationStatus === 'published')
+      .map((project) => project.id),
+  );
+  const publishedExperienceIds = new Set(
+    experiences
+      .filter((experience) => experience.publicationStatus === 'published')
+      .map((experience) => experience.id),
+  );
 
   skillGroups.forEach((group, groupIndex) => {
     const path = `skills[${groupIndex}]`;
@@ -541,6 +590,14 @@ function assertSkillGroups(skillGroups, projects, experiences) {
         if (!experienceIds.has(experienceId)) {
           fail(`${skillPath} has broken experience reference ${experienceId}.`);
         }
+      }
+      const hasPublishedEvidence =
+        skill.evidenceProjectIds.some((projectId) => publishedProjectIds.has(projectId)) ||
+        skill.evidenceExperienceIds.some((experienceId) =>
+          publishedExperienceIds.has(experienceId),
+        );
+      if (!hasPublishedEvidence) {
+        fail(`${skillPath} requires at least one published evidence reference.`);
       }
       if (skill.context !== undefined) assertString(skill.context, `${skillPath}.context`);
     });
@@ -643,6 +700,9 @@ function assertProjectCollection(projects) {
   assertUniqueIds(projects, 'projects');
   projects.forEach((project, index) => assertProject(project, `projects[${index}]`));
   assertFlagshipCandidates(projects);
+  if (projects.some((project) => project.publicationStatus !== 'published')) {
+    fail('Milestone 4 requires exactly the three approved flagship projects to be published.');
+  }
 
   const metaMind = projects.find(
     (project) => project.id === 'metamind-responsible-ai-learning-companion',
@@ -683,12 +743,13 @@ function assertExperienceCollection(experiences) {
 export function validatePortfolioData(data) {
   assertAllowedKeys(
     data,
-    ['profile', 'projects', 'experience', 'skills', 'certifications', 'education'],
+    ['profile', 'capabilities', 'projects', 'experience', 'skills', 'certifications', 'education'],
     'portfolioData',
   );
   assertPublishSafeTree(data);
   assertProfile(data.profile);
   assertProjectCollection(data.projects);
+  assertCapabilities(data.capabilities, data.projects);
   assertExperienceCollection(data.experience);
   assertSkillGroups(data.skills, data.projects, data.experience);
   assertCertifications(data.certifications);

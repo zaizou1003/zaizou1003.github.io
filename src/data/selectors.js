@@ -59,6 +59,12 @@ export function selectPublishedProjects(projectRecords) {
     });
 }
 
+export function selectSelectedWorkProjects(projectRecords) {
+  return selectPublishedProjects(projectRecords).filter(
+    (project) => project.featuredOrder === null,
+  );
+}
+
 export function selectPublishedExperience(experienceRecords) {
   return experienceRecords
     .filter((record) => record.publicationStatus === 'published')
@@ -73,6 +79,41 @@ export function selectSkillGroups(skillGroups) {
   return skillGroups
     .slice()
     .sort((left, right) => left.displayOrder - right.displayOrder || compareText(left.title, right.title));
+}
+
+export function selectPublishedSkillGroups(skillGroups, projectRecords, experienceRecords) {
+  const publishedProjectIds = new Set(
+    projectRecords
+      .filter((project) => project.publicationStatus === 'published')
+      .map((project) => project.id),
+  );
+  const publishedExperienceIds = new Set(
+    experienceRecords
+      .filter((experience) => experience.publicationStatus === 'published')
+      .map((experience) => experience.id),
+  );
+
+  return selectSkillGroups(skillGroups)
+    .map((group) => ({
+      ...group,
+      skills: group.skills.filter(
+        (skill) =>
+          skill.evidenceProjectIds.some((projectId) => publishedProjectIds.has(projectId)) ||
+          skill.evidenceExperienceIds.some((experienceId) =>
+            publishedExperienceIds.has(experienceId),
+          ),
+      ),
+    }))
+    .filter((group) => group.skills.length > 0);
+}
+
+export function selectCapabilities(capabilityRecords) {
+  return capabilityRecords
+    .slice()
+    .sort(
+      (left, right) =>
+        left.displayOrder - right.displayOrder || compareText(left.title, right.title),
+    );
 }
 
 export function selectFeaturedCertifications(certificationRecords) {

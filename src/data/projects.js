@@ -17,9 +17,18 @@ export const projects = deepFreeze([
     categories: ['agentic-ai', 'mcp', 'rag', 'responsible-ai', 'production-ai'],
     evidenceResults: [
       {
-        label: 'Verified implementation themes',
-        value:
-          'MCP tool integration; retrieval and evidence grounding; evidence validation; security controls; evaluation.',
+        label: 'Agent and retrieval integration',
+        value: 'MCP tool integration connects retrieval with evidence grounding.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Evidence controls',
+        value: 'Evidence validation and security controls are part of the reviewed implementation.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Evaluation boundary',
+        value: 'Evaluation is in scope; no quantitative performance result is claimed.',
         method: 'Implementation-scope review; no numeric outcome is claimed.',
       },
     ],
@@ -27,7 +36,7 @@ export const projects = deepFreeze([
     demoPaperUrl: null,
     image: null,
     featuredOrder: 1,
-    publicationStatus: 'evidence-pending',
+    publicationStatus: 'published',
   },
   {
     id: 'finrl-deepseek-research-extension',
@@ -50,6 +59,16 @@ export const projects = deepFreeze([
         method: 'Deterministic EP90 historical backtest.',
       },
       {
+        label: 'Ten-seed stochastic mean annual return',
+        value: '16.843% ± 3.517%',
+        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
+      },
+      {
+        label: 'Ten-seed stochastic mean maximum drawdown',
+        value: '−25.921% ± 1.671%',
+        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
+      },
+      {
         label: 'Deterministic total return',
         value: '119.86%',
         method: 'Deterministic EP90 historical backtest.',
@@ -60,18 +79,8 @@ export const projects = deepFreeze([
         method: 'Deterministic EP90 historical backtest.',
       },
       {
-        label: 'Ten-seed stochastic mean annual return',
-        value: '16.843% ± 3.517%',
-        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
-      },
-      {
         label: 'Ten-seed stochastic mean Sharpe ratio',
         value: '0.878 ± 0.173',
-        method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
-      },
-      {
-        label: 'Ten-seed stochastic mean maximum drawdown',
-        value: '−25.921% ± 1.671%',
         method: 'Ten-seed stochastic historical backtest; mean ± standard deviation.',
       },
     ],
@@ -79,7 +88,7 @@ export const projects = deepFreeze([
     demoPaperUrl: null,
     image: null,
     featuredOrder: 2,
-    publicationStatus: 'evidence-pending',
+    publicationStatus: 'published',
   },
   {
     id: 'metamind-responsible-ai-learning-companion',
@@ -96,9 +105,20 @@ export const projects = deepFreeze([
     categories: ['agentic-ai', 'responsible-ai'],
     evidenceResults: [
       {
-        label: 'Verified implementation',
+        label: 'Multi-agent architecture',
         value:
-          'Planner agent; Socratic tutor; learning-signal extractor; fairness reviewer; controller and state transitions; SQLite persistence; CLI; Streamlit interface.',
+          'Planner agent; Socratic tutor; learning-signal extractor; fairness reviewer; controller and state transitions.',
+        method: 'Implementation-scope review.',
+      },
+      {
+        label: 'Persistent learner state',
+        value: 'SQLite persistence supports learner state and learning history across sessions.',
+        method: 'Implementation-scope review of the CLI and Streamlit interfaces.',
+      },
+      {
+        label: 'Responsible-AI boundary',
+        value:
+          'Fairness audits are user-triggered; learning effectiveness and fairness outcomes remain not evaluated.',
         method:
           'Implementation-scope review; no learning-effectiveness or fairness-outcome result is claimed.',
       },
@@ -112,6 +132,6 @@ export const projects = deepFreeze([
       learningEffectiveness: 'not-evaluated',
       fairnessOutcomes: 'not-evaluated',
     },
-    publicationStatus: 'evidence-pending',
+    publicationStatus: 'published',
   },
 ]);

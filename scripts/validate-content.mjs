@@ -12,8 +12,12 @@ const featuredCandidates = selectFeaturedCandidates(portfolioData.projects);
 const publicFeatured = selectFeaturedProjects(portfolioData.projects);
 const publicProjects = selectPublishedProjects(portfolioData.projects);
 
-if (publicFeatured.length !== 0 || publicProjects.length !== 0) {
-  throw new Error('Milestone 2 project records must remain excluded from public selectors.');
+if (
+  publicFeatured.length !== 3 ||
+  publicProjects.length !== 3 ||
+  publicFeatured.some((project, index) => project.id !== featuredCandidates[index]?.id)
+) {
+  throw new Error('Milestone 4 must publish exactly the three approved flagship projects in order.');
 }
 
 console.log(
@@ -22,6 +26,7 @@ console.log(
       status: 'validated',
       records: {
         profile: 1,
+        capabilities: portfolioData.capabilities.length,
         projects: portfolioData.projects.length,
         experience: portfolioData.experience.length,
         skillGroups: portfolioData.skills.length,

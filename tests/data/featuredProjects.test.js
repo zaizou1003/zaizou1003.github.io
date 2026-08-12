@@ -9,23 +9,11 @@ import {
   validatePortfolioData,
 } from '../../src/data/index.js';
 
-function publishedFixture() {
-  const data = structuredClone(portfolioData);
-  data.projects = data.projects.map((project) => ({
-    ...project,
-    publicationStatus: 'published',
-    image: {
-      src: `/images/projects/${project.id}.webp`,
-      alt: `Approved evidence image for ${project.title}`,
-      width: 1200,
-      height: 675,
-    },
-  }));
-  return data;
-}
-
-test('the real Milestone 2 public featured selector returns no records', () => {
-  assert.deepEqual(selectFeaturedProjects(portfolioData.projects), []);
+test('the real Milestone 4 public featured selector returns exactly three records', () => {
+  assert.deepEqual(
+    selectFeaturedProjects(portfolioData.projects).map((project) => project.id),
+    FLAGSHIP_PROJECTS.map((project) => project.id),
+  );
 });
 
 test('featured candidates are the exact locked IDs in order 1–3', () => {
@@ -36,18 +24,14 @@ test('featured candidates are the exact locked IDs in order 1–3', () => {
   );
 });
 
-test('safe published fixture copies select exactly three projects in order', () => {
-  const data = publishedFixture();
-  assert.equal(validatePortfolioData(data), true);
-  const selected = selectFeaturedProjects(data.projects);
-  assert.deepEqual(
-    selected.map((project) => project.id),
-    FLAGSHIP_PROJECTS.map((project) => project.id),
-  );
+test('published flagship order is derived from featuredOrder, not array position', () => {
+  const projects = structuredClone(portfolioData.projects).reverse();
+  const selected = selectFeaturedProjects(projects);
+  assert.deepEqual(selected.map((project) => project.featuredOrder), [1, 2, 3]);
 });
 
 test('partial publication fails the featured contract', () => {
-  const data = publishedFixture();
+  const data = structuredClone(portfolioData);
   data.projects[2].publicationStatus = 'evidence-pending';
   assert.throws(() => selectFeaturedProjects(data.projects), /exactly 3 records/i);
 });

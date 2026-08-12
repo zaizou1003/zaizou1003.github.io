@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { profile } from '../src/data/profile.js';
+import { projects } from '../src/data/projects.js';
+import { selectFeaturedProjects } from '../src/data/selectors.js';
+import { HOME_SECTION_ORDER } from './verify-dist.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
@@ -24,7 +28,7 @@ function delay(milliseconds) {
 }
 
 async function preparePreviewDirectory() {
-  const requestedDirectory = process.env.MILESTONE3_PREVIEW_DIR;
+  const requestedDirectory = process.env.MILESTONE4_PREVIEW_DIR;
   if (!requestedDirectory) return null;
 
   const directory = resolve(requestedDirectory);
@@ -226,7 +230,11 @@ async function verifyPage(
   {
     path,
     expectedHeading,
+    expectedFeaturedProjectIds = [],
+    expectedHomeContacts = [],
+    expectedHomeSections = [],
     expectedNavigationHrefs,
+    expectedProjectsPlaceholder = false,
     javaScriptEnabled,
     reducedMotion = false,
     screenshotFile = null,
@@ -363,6 +371,11 @@ async function verifyPage(
       const summaryRect = summary?.getBoundingClientRect();
       const contactTypes = [...document.querySelectorAll('[data-contact-kind]')]
         .map((link) => link.dataset.contactKind);
+      const homeContacts = [...document.querySelectorAll('[data-home-contact-kind]')]
+        .map((link) => ({
+          kind: link.dataset.homeContactKind,
+          href: link.getAttribute('href')
+        }));
       const isVisible = (element) => {
         if (!element) return false;
         const style = getComputedStyle(element);
@@ -376,7 +389,7 @@ async function verifyPage(
       ];
       const practicalPointerTargets = [
         ...document.querySelectorAll(
-          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .footer-nav a, .footer-contact-link',
+          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .home-contact-link, .footer-nav a, .footer-contact-link',
         ),
       ].filter(isVisible);
       const essentialText = [
@@ -404,6 +417,12 @@ async function verifyPage(
         summaryCount: document.querySelectorAll('summary.site-nav__summary').length,
         footerCount: document.querySelectorAll('footer.site-footer').length,
         contactTypes,
+        homeContacts,
+        homeSections: [...document.querySelectorAll('[data-home-section]')]
+          .map((section) => section.dataset.homeSection),
+        featuredProjectIds: [...document.querySelectorAll('[data-featured-project-id]')]
+          .map((article) => article.dataset.featuredProjectId),
+        projectsPlaceholderCount: document.querySelectorAll('[data-projects-placeholder]').length,
         primaryNavigationHrefs: primaryLinks.map((link) => link.getAttribute('href')),
         primaryNavigationVisible: primaryLinks.every(isVisible),
         summaryVisible: isVisible(summary),
@@ -491,6 +510,20 @@ async function verifyPage(
   if (JSON.stringify(snapshot.contactTypes) !== JSON.stringify(['email', 'linkedin', 'github'])) {
     throw new Error(`${path} at ${width}px does not contain exactly the three approved contact types.`);
   }
+  if (JSON.stringify(snapshot.homeSections) !== JSON.stringify(expectedHomeSections)) {
+    throw new Error(`${path} at ${width}px has an unexpected static homepage section order.`);
+  }
+  if (
+    JSON.stringify(snapshot.featuredProjectIds) !== JSON.stringify(expectedFeaturedProjectIds)
+  ) {
+    throw new Error(`${path} at ${width}px has an unexpected published flagship set or order.`);
+  }
+  if (JSON.stringify(snapshot.homeContacts) !== JSON.stringify(expectedHomeContacts)) {
+    throw new Error(`${path} at ${width}px has an unexpected homepage contact contract.`);
+  }
+  if (snapshot.projectsPlaceholderCount !== (expectedProjectsPlaceholder ? 1 : 0)) {
+    throw new Error(`${path} at ${width}px has an unexpected Projects placeholder state.`);
+  }
   if (snapshot.summaryVisible) {
     if (!interaction.nativeDisclosureOpened) {
       throw new Error(`${path} at ${width}px cannot open its native navigation disclosure.`);
@@ -543,8 +576,16 @@ export async function verifyBrowser() {
     const contracts = [
       {
         id: 'home',
+        screenshotPrefix: 'home',
+        widths: [320, 768, 1440],
         path: '/',
         expectedHeading: 'Ahmed Aziz Ben Aissa',
+        expectedHomeSections: HOME_SECTION_ORDER,
+        expectedFeaturedProjectIds: selectFeaturedProjects(projects).map((project) => project.id),
+        expectedHomeContacts: ['email', 'linkedin', 'github'].map((kind) => ({
+          kind,
+          href: profile.links[kind].href,
+        })),
         expectedNavigationHrefs: [
           '#capabilities',
           '#featured-projects',
@@ -558,8 +599,11 @@ export async function verifyBrowser() {
       },
       {
         id: 'projects',
+        screenshotPrefix: 'projects-placeholder',
+        widths: [320, 1440],
         path: '/projects/',
         expectedHeading: 'Projects',
+        expectedProjectsPlaceholder: true,
         expectedNavigationHrefs: [
           '/#capabilities',
           '/#featured-projects',
@@ -577,9 +621,9 @@ export async function verifyBrowser() {
     const reducedMotion = [];
     const screenshots = [];
     for (const contract of contracts) {
-      for (const width of [320, 1440]) {
+      for (const width of contract.widths) {
         const screenshotFile = previewDirectory
-          ? resolve(previewDirectory, `${contract.id}-${width}.png`)
+          ? resolve(previewDirectory, `${contract.screenshotPrefix}-${width}.png`)
           : null;
         const result = await verifyPage(connection, staticServer.origin, {
           ...contract,
@@ -637,9 +681,8 @@ export async function verifyBrowser() {
     }
 
     const mismatch = await verifyPage(connection, staticServer.origin, {
+      ...contracts[0],
       path: '/__mismatch/',
-      expectedHeading: 'Ahmed Aziz Ben Aissa',
-      expectedNavigationHrefs: contracts[0].expectedNavigationHrefs,
       javaScriptEnabled: true,
       width: 320,
     });

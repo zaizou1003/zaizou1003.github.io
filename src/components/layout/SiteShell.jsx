@@ -1,4 +1,3 @@
-import { profile } from '../../data/profile.js';
 import { InlineIcon } from '../ui/InlineIcon.jsx';
 import { NavigationMenu } from './NavigationMenu.jsx';
 
@@ -10,7 +9,7 @@ function SkipLink() {
   );
 }
 
-function SiteHeader({ currentPage }) {
+function SiteHeader({ currentPage, profile }) {
   return (
     <header className="site-header">
       <div className="container site-header__inner">
@@ -35,7 +34,7 @@ function SiteHeader({ currentPage }) {
   );
 }
 
-function SiteFooter({ currentPage }) {
+function SiteFooter({ currentPage, profile }) {
   const contactLinks = Object.values(profile.links);
 
   return (
@@ -89,15 +88,15 @@ function SiteFooter({ currentPage }) {
   );
 }
 
-export function SiteShell({ children, currentPage, pageId }) {
+export function SiteShell({ children, currentPage, pageId, profile }) {
   return (
     <>
       <SkipLink />
-      <SiteHeader currentPage={currentPage} />
+      <SiteHeader currentPage={currentPage} profile={profile} />
       <main id="main" className="page-main" data-static-page={pageId} tabIndex="-1">
         {children}
       </main>
-      <SiteFooter currentPage={currentPage} />
+      <SiteFooter currentPage={currentPage} profile={profile} />
     </>
   );
 }

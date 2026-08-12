@@ -13,6 +13,24 @@ test('approved public contact destinations are exact field-level contracts', () 
   assert.throws(() => validatePortfolioData(data), /profile\.links\.github\.href.*owner-approved/i);
 });
 
+test('profile narrative and capability evidence references cannot drift', async (context) => {
+  await context.test('profile summary', () => {
+    const data = cloneData();
+    data.profile.summary = 'Changed homepage support statement.';
+    assert.throws(() => validatePortfolioData(data), /profile\.summary.*owner-approved/i);
+  });
+  await context.test('capability order', () => {
+    const data = cloneData();
+    data.capabilities[0].displayOrder = 4;
+    assert.throws(() => validatePortfolioData(data), /duplicate display orders|owner-approved/i);
+  });
+  await context.test('capability project evidence', () => {
+    const data = cloneData();
+    data.capabilities[1].evidenceProjectIds = ['metamind-responsible-ai-learning-companion'];
+    assert.throws(() => validatePortfolioData(data), /owner-approved/i);
+  });
+});
+
 test('flagship evidence and role fields cannot drift', async (context) => {
   await context.test('evidence value', () => {
     const data = cloneData();
