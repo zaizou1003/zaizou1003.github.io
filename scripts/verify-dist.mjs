@@ -28,6 +28,7 @@ import {
   getProjectWorkModeLabel,
 } from '../src/utils/projectPresentation.js';
 import { inspectArtifactText } from '../src/validation/privacy.js';
+import { verifyDistAssets } from './verify-assets.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
@@ -941,6 +942,7 @@ export async function verifyDistribution({
     });
   }
 
+  const assetVerification = await verifyDistAssets({ directory: distDirectory });
   const outputFiles = await listFiles(distDirectory);
   for (const file of outputFiles) {
     const normalizedName = relative(distDirectory, file).replaceAll('\\', '/');
@@ -958,7 +960,12 @@ export async function verifyDistribution({
       bytes: (await stat(file)).size,
     })),
   );
-  return { status: 'verified', pages: verifiedPages, files: files.sort((a, b) => a.file.localeCompare(b.file)) };
+  return {
+    status: 'verified',
+    pages: verifiedPages,
+    assets: assetVerification.assets,
+    files: files.sort((a, b) => a.file.localeCompare(b.file)),
+  };
 }
 
 const isCommandLine = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
