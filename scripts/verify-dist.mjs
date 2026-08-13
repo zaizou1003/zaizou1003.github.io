@@ -28,7 +28,11 @@ import {
   getProjectWorkModeLabel,
 } from '../src/utils/projectPresentation.js';
 import { inspectArtifactText } from '../src/validation/privacy.js';
+import { approvedDistPaths } from './assets/manifest.mjs';
+import { verifyPageMetadataHtml } from './metadata/html-transform.mjs';
+import { approvedCrawlDistPaths } from './static/manifest.mjs';
 import { verifyDistAssets } from './verify-assets.mjs';
+import { verifyDistCrawlFiles } from './verify-crawl-files.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
@@ -69,10 +73,47 @@ const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
   '.xml',
 ]);
 const TEXT_ARTIFACT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt', '.xml']);
-const SVG_PATH_DATA_PATTERN = /^[AaCcHhLlMmQqSsTtVvZzEe0-9+.,\s-]+$/;
 const APPROVED_ICON_PATHS = new Set(
   Object.values(iconDefinitions).flatMap((definition) => definition.paths),
 );
+export const FIXED_DISTRIBUTION_PATHS = Object.freeze([
+  'index.html',
+  'projects/index.html',
+  ...approvedDistPaths,
+  ...approvedCrawlDistPaths,
+]);
+export const EXPECTED_LOGICAL_BUILD_ASSETS = Object.freeze([
+  'home.js',
+  'hydrateNavigation.css',
+  'hydrateNavigation.js',
+  'projects.css',
+  'projects.js',
+]);
+const EXPECTED_PAGE_LOGICAL_ASSETS = Object.freeze({
+  home: Object.freeze(['home.js', 'hydrateNavigation.css', 'hydrateNavigation.js']),
+  projects: Object.freeze([
+    'hydrateNavigation.css',
+    'hydrateNavigation.js',
+    'projects.css',
+    'projects.js',
+  ]),
+});
+const BUILD_ASSET_PATTERN = /^assets\/(home|projects|hydrateNavigation)-([A-Za-z0-9_-]{6,})\.(css|js)$/;
+const STRICT_START_TAG_NAMES = new Set(['link', 'path', 'script']);
+const RAW_TEXT_TAG_NAMES = new Set(['script', 'style', 'textarea', 'title']);
+const EXPECTED_BUILD_ASSET_ROLES = Object.freeze({
+  home: Object.freeze({
+    'home.js': Object.freeze({ tagName: 'script', referenceAttribute: 'src', type: 'module' }),
+    'hydrateNavigation.css': Object.freeze({ tagName: 'link', referenceAttribute: 'href', rel: 'stylesheet' }),
+    'hydrateNavigation.js': Object.freeze({ tagName: 'link', referenceAttribute: 'href', rel: 'modulepreload' }),
+  }),
+  projects: Object.freeze({
+    'hydrateNavigation.css': Object.freeze({ tagName: 'link', referenceAttribute: 'href', rel: 'stylesheet' }),
+    'hydrateNavigation.js': Object.freeze({ tagName: 'link', referenceAttribute: 'href', rel: 'modulepreload' }),
+    'projects.css': Object.freeze({ tagName: 'link', referenceAttribute: 'href', rel: 'stylesheet' }),
+    'projects.js': Object.freeze({ tagName: 'script', referenceAttribute: 'src', type: 'module' }),
+  }),
+});
 const REGEX_PREFIX_KEYWORDS = new Set([
   'await',
   'case',
@@ -657,7 +698,10 @@ export function verifyPageHtml(html, contract, file = contract.relativeFile ?? c
   return rootMarkup;
 }
 
-export function assertAllowedArtifactFilename(normalizedName) {
+export function assertAllowedArtifactFilename(normalizedName, trustedPaths) {
+  if (trustedPaths !== undefined && !trustedPaths.has(normalizedName)) {
+    throw new Error(`untrusted-distribution-path: ${normalizedName}`);
+  }
   const extension = extname(normalizedName.toLowerCase());
   if (!ALLOWED_ARTIFACT_EXTENSIONS.has(extension)) {
     throw new Error(`artifact-extension: ${normalizedName}`);
@@ -666,6 +710,304 @@ export function assertAllowedArtifactFilename(normalizedName) {
   if (FORBIDDEN_FILENAME_FRAGMENTS.some((fragment) => lowerName.includes(fragment))) {
     throw new Error(`private-artifact-filename: ${normalizedName}`);
   }
+}
+
+function isHtmlWhitespace(character) {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\f' || character === '\r';
+}
+
+function findRawTextClose(source, tagName, start) {
+  const lowerSource = source.toLowerCase();
+  let searchFrom = start;
+  while (searchFrom < source.length) {
+    const closeStart = lowerSource.indexOf(`</${tagName}`, searchFrom);
+    if (closeStart === -1) throw new Error(`unterminated-raw-text-tag: ${tagName}`);
+    const nameEnd = closeStart + tagName.length + 2;
+    const boundary = source[nameEnd];
+    if (boundary !== '>' && !isHtmlWhitespace(boundary)) {
+      searchFrom = nameEnd;
+      continue;
+    }
+    const closeEnd = source.indexOf('>', nameEnd);
+    if (closeEnd === -1) throw new Error(`unterminated-raw-text-close-tag: ${tagName}`);
+    if (source.slice(nameEnd, closeEnd).trim() !== '') {
+      throw new Error(`malformed-raw-text-close-tag: ${tagName}`);
+    }
+    return closeEnd + 1;
+  }
+  throw new Error(`unterminated-raw-text-tag: ${tagName}`);
+}
+
+function parseHtmlStartTag(source, start, inSvg) {
+  let cursor = start + 1;
+  const nameStart = cursor;
+  if (!/[A-Za-z]/.test(source[cursor] ?? '')) return null;
+  cursor += 1;
+  while (/[A-Za-z0-9:-]/.test(source[cursor] ?? '')) cursor += 1;
+  const rawName = source.slice(nameStart, cursor);
+  const name = rawName.toLowerCase();
+  if (!isHtmlWhitespace(source[cursor]) && source[cursor] !== '>' && source[cursor] !== '/') {
+    throw new Error(`malformed-start-tag-name: ${name}`);
+  }
+
+  const attributes = new Map();
+  let selfClosing = false;
+  while (cursor < source.length) {
+    while (isHtmlWhitespace(source[cursor])) cursor += 1;
+    if (source[cursor] === '>') {
+      cursor += 1;
+      return { name, rawName, attributes, start, end: cursor, selfClosing, inSvg };
+    }
+    if (source[cursor] === '/' && source[cursor + 1] === '>') {
+      selfClosing = true;
+      cursor += 2;
+      return { name, rawName, attributes, start, end: cursor, selfClosing, inSvg };
+    }
+    if (cursor >= source.length) break;
+
+    const attributeStart = cursor;
+    if (!/[A-Za-z_:]/.test(source[cursor] ?? '')) {
+      throw new Error(`malformed-attribute-name: ${name}`);
+    }
+    cursor += 1;
+    while (/[A-Za-z0-9_.:-]/.test(source[cursor] ?? '')) cursor += 1;
+    const rawAttributeName = source.slice(attributeStart, cursor);
+    const attributeName = rawAttributeName.toLowerCase();
+    if (
+      !isHtmlWhitespace(source[cursor]) &&
+      source[cursor] !== '=' &&
+      source[cursor] !== '>' &&
+      !(source[cursor] === '/' && source[cursor + 1] === '>')
+    ) {
+      throw new Error(`malformed-attribute-name: ${name}`);
+    }
+    while (isHtmlWhitespace(source[cursor])) cursor += 1;
+
+    let quoted = false;
+    let quote = null;
+    let value = null;
+    let valueStart = null;
+    let valueEnd = null;
+    if (source[cursor] === '=') {
+      cursor += 1;
+      while (isHtmlWhitespace(source[cursor])) cursor += 1;
+      quote = source[cursor];
+      if (quote === '"' || quote === "'") {
+        quoted = true;
+        valueStart = cursor + 1;
+        valueEnd = source.indexOf(quote, valueStart);
+        if (valueEnd === -1) throw new Error(`unterminated-attribute-value: ${name}-${attributeName}`);
+        value = source.slice(valueStart, valueEnd);
+        cursor = valueEnd + 1;
+      } else {
+        valueStart = cursor;
+        while (
+          cursor < source.length &&
+          !isHtmlWhitespace(source[cursor]) &&
+          source[cursor] !== '>'
+        ) {
+          if (/['"<=`]/.test(source[cursor])) {
+            throw new Error(`malformed-unquoted-attribute-value: ${name}-${attributeName}`);
+          }
+          cursor += 1;
+        }
+        valueEnd = cursor;
+        if (valueEnd === valueStart) throw new Error(`missing-attribute-value: ${name}-${attributeName}`);
+        value = source.slice(valueStart, valueEnd);
+      }
+    }
+
+    if (STRICT_START_TAG_NAMES.has(name) && attributes.has(attributeName)) {
+      throw new Error(`duplicate-attribute: ${name}-${attributeName}`);
+    }
+    attributes.set(attributeName, {
+      name: attributeName,
+      rawName: rawAttributeName,
+      value,
+      quoted,
+      quote,
+      valueStart,
+      valueEnd,
+    });
+  }
+  throw new Error(`unterminated-start-tag: ${name}`);
+}
+
+function tokenizeHtmlStartTags(source) {
+  const tags = [];
+  let cursor = 0;
+  let svgDepth = 0;
+  while (cursor < source.length) {
+    const start = source.indexOf('<', cursor);
+    if (start === -1) break;
+    if (source.startsWith('<!--', start)) {
+      const commentEnd = source.indexOf('-->', start + 4);
+      if (commentEnd === -1) throw new Error('unterminated-html-comment');
+      cursor = commentEnd + 3;
+      continue;
+    }
+    if (source.startsWith('</', start)) {
+      let nameCursor = start + 2;
+      if (!/[A-Za-z]/.test(source[nameCursor] ?? '')) {
+        cursor = start + 2;
+        continue;
+      }
+      const nameStart = nameCursor;
+      nameCursor += 1;
+      while (/[A-Za-z0-9:-]/.test(source[nameCursor] ?? '')) nameCursor += 1;
+      const name = source.slice(nameStart, nameCursor).toLowerCase();
+      const closeEnd = source.indexOf('>', nameCursor);
+      if (closeEnd === -1) throw new Error(`unterminated-close-tag: ${name}`);
+      if (source.slice(nameCursor, closeEnd).trim() !== '') {
+        throw new Error(`malformed-close-tag: ${name}`);
+      }
+      if (name === 'svg') svgDepth = Math.max(0, svgDepth - 1);
+      cursor = closeEnd + 1;
+      continue;
+    }
+    if (source.startsWith('<!', start) || source.startsWith('<?', start)) {
+      const declarationEnd = source.indexOf('>', start + 2);
+      if (declarationEnd === -1) throw new Error('unterminated-html-declaration');
+      cursor = declarationEnd + 1;
+      continue;
+    }
+
+    const tag = parseHtmlStartTag(source, start, svgDepth > 0);
+    if (!tag) {
+      cursor = start + 1;
+      continue;
+    }
+    if (tag.name === 'svg') tag.inSvg = true;
+    tags.push(tag);
+    if (tag.name === 'svg' && !tag.selfClosing) svgDepth += 1;
+    if (RAW_TEXT_TAG_NAMES.has(tag.name)) {
+      if (tag.selfClosing) throw new Error(`self-closing-raw-text-tag: ${tag.name}`);
+      cursor = findRawTextClose(source, tag.name, tag.end);
+    } else {
+      cursor = tag.end;
+    }
+  }
+  return tags;
+}
+
+function exactQuotedAttribute(tag, attributeName, expectedValue) {
+  const attribute = tag.attributes.get(attributeName);
+  return Boolean(attribute?.quoted && attribute.value === expectedValue);
+}
+
+function extractHtmlBuildAssetReferences(html, pageId) {
+  const references = [];
+  const expectedRoles = EXPECTED_BUILD_ASSET_ROLES[pageId];
+  if (!expectedRoles) throw new Error(`unknown-build-asset-page: ${pageId}`);
+  for (const tag of tokenizeHtmlStartTags(html)) {
+    if (tag.name !== 'script' && tag.name !== 'link') continue;
+    const src = tag.attributes.get('src');
+    const href = tag.attributes.get('href');
+    const assetReferences = [src, href].filter((attribute) =>
+      attribute?.value?.startsWith('/assets/'),
+    );
+    if (assetReferences.length === 0) continue;
+    if (assetReferences.length !== 1) throw new Error(`conflicting-build-asset-reference: ${pageId}`);
+    const referenceAttribute = assetReferences[0];
+    if (!referenceAttribute.quoted || /[?#\\%]/.test(referenceAttribute.value)) {
+      throw new Error(`invalid-build-asset-reference: ${pageId}`);
+    }
+
+    const pathname = referenceAttribute.value.slice(1);
+    const logicalName = logicalBuildAssetName(pathname);
+    const expectedRole = expectedRoles[logicalName];
+    if (!expectedRole) throw new Error(`unexpected-page-build-asset: ${pageId}-${logicalName}`);
+    if (
+      tag.name !== expectedRole.tagName ||
+      referenceAttribute.name !== expectedRole.referenceAttribute
+    ) {
+      throw new Error(`wrong-build-asset-role: ${pageId}-${logicalName}`);
+    }
+    if (tag.name === 'script') {
+      if (
+        !exactQuotedAttribute(tag, 'type', expectedRole.type) ||
+        tag.attributes.has('href') ||
+        tag.attributes.has('rel')
+      ) {
+        throw new Error(`wrong-build-script-contract: ${pageId}-${logicalName}`);
+      }
+    } else if (
+      !exactQuotedAttribute(tag, 'rel', expectedRole.rel) ||
+      tag.attributes.has('src') ||
+      tag.attributes.has('type')
+    ) {
+      throw new Error(`wrong-build-link-contract: ${pageId}-${logicalName}`);
+    }
+    references.push(pathname);
+  }
+  return references;
+}
+
+function logicalBuildAssetName(pathname) {
+  const match = pathname.match(BUILD_ASSET_PATTERN);
+  if (!match) throw new Error(`unexpected-logical-build-asset: ${pathname}`);
+  const logicalName = `${match[1]}.${match[3]}`;
+  if (!EXPECTED_LOGICAL_BUILD_ASSETS.includes(logicalName)) {
+    throw new Error(`unexpected-logical-build-asset: ${pathname}`);
+  }
+  return logicalName;
+}
+
+export function assertTrustedDistributionPaths(outputNames, pageHtmlById) {
+  const names = [...outputNames];
+  if (names.some((name) => typeof name !== 'string' || !name || name.includes('\\'))) {
+    throw new Error('invalid-distribution-path');
+  }
+  const outputSet = new Set(names);
+  if (outputSet.size !== names.length) throw new Error('duplicate-distribution-path');
+
+  const fixedSet = new Set(FIXED_DISTRIBUTION_PATHS);
+  for (const pathname of fixedSet) {
+    if (!outputSet.has(pathname)) throw new Error(`missing-fixed-distribution-path: ${pathname}`);
+  }
+
+  const reachableAssets = new Set();
+  const logicalAssets = new Map();
+  for (const pageId of ['home', 'projects']) {
+    const html = pageHtmlById?.[pageId];
+    if (typeof html !== 'string') throw new Error(`missing-approved-html-graph: ${pageId}`);
+    const references = extractHtmlBuildAssetReferences(html, pageId);
+    const pageLogicalNames = [];
+    for (const pathname of references) {
+      const logicalName = logicalBuildAssetName(pathname);
+      pageLogicalNames.push(logicalName);
+      const previousPath = logicalAssets.get(logicalName);
+      if (previousPath && previousPath !== pathname) {
+        throw new Error(`duplicate-logical-build-asset: ${logicalName}`);
+      }
+      logicalAssets.set(logicalName, pathname);
+      reachableAssets.add(pathname);
+    }
+    const actualPageAssets = [...new Set(pageLogicalNames)].sort();
+    const expectedPageAssets = [...EXPECTED_PAGE_LOGICAL_ASSETS[pageId]].sort();
+    if (
+      pageLogicalNames.length !== actualPageAssets.length ||
+      JSON.stringify(actualPageAssets) !== JSON.stringify(expectedPageAssets)
+    ) {
+      throw new Error(`unexpected-page-build-assets: ${pageId}`);
+    }
+  }
+
+  const actualLogicalAssets = [...logicalAssets.keys()].sort();
+  if (JSON.stringify(actualLogicalAssets) !== JSON.stringify(EXPECTED_LOGICAL_BUILD_ASSETS)) {
+    throw new Error('incomplete-logical-build-asset-set');
+  }
+
+  for (const pathname of names) {
+    if (!fixedSet.has(pathname) && !reachableAssets.has(pathname)) {
+      throw new Error(`untrusted-distribution-path: ${pathname}`);
+    }
+  }
+  for (const pathname of reachableAssets) {
+    if (!outputSet.has(pathname)) throw new Error(`missing-reachable-build-asset: ${pathname}`);
+  }
+
+  return new Set([...fixedSet, ...reachableAssets]);
 }
 
 export function normalizeJavaScriptForArtifactReview(source) {
@@ -893,13 +1235,28 @@ export function normalizeJavaScriptForArtifactReview(source) {
   return { content: normalized.join(''), concatenatedStrings };
 }
 
+function normalizeApprovedSvgPathsForArtifactReview(source) {
+  const normalized = source.split('');
+  for (const tag of tokenizeHtmlStartTags(source)) {
+    if (tag.name !== 'path' || !tag.inSvg) continue;
+    const pathData = tag.attributes.get('d');
+    if (!pathData) continue;
+    if (!pathData.quoted || pathData.valueStart === null || pathData.valueEnd === null) {
+      throw new Error('malformed-svg-path-data');
+    }
+    if (!APPROVED_ICON_PATHS.has(pathData.value)) continue;
+    for (let cursor = pathData.valueStart; cursor < pathData.valueEnd; cursor += 1) {
+      normalized[cursor] = ' ';
+    }
+  }
+  return normalized.join('');
+}
+
 export function assertPublishSafeArtifactText(content, normalizedName) {
   const extension = extname(normalizedName).toLowerCase();
   let reviewContent =
     extension === '.html' || extension === '.svg'
-      ? content.replaceAll(/\sd=(["'])([^"']*)\1/gi, (attribute, quote, pathData) =>
-          SVG_PATH_DATA_PATTERN.test(pathData) ? ` d=${quote}${quote}` : attribute,
-        )
+      ? normalizeApprovedSvgPathsForArtifactReview(content)
       : content;
   let additionalReviewContent = [];
   if (extension === '.js') {
@@ -932,22 +1289,36 @@ export async function verifyDistribution({
   pageContracts = DEFAULT_PAGE_CONTRACTS,
 } = {}) {
   const verifiedPages = [];
+  const verifiedMetadata = [];
+  const pageHtmlById = {};
   for (const contract of pageContracts) {
     const file = resolve(distDirectory, contract.relativeFile);
     const html = await readFile(file, 'utf8');
     verifyPageHtml(html, contract, contract.relativeFile);
+    const metadata = verifyPageMetadataHtml(html, contract.id);
+    pageHtmlById[contract.id] = html;
     verifiedPages.push({
       file: contract.relativeFile.replaceAll('\\', '/'),
       bytes: Buffer.byteLength(html, 'utf8'),
     });
+    verifiedMetadata.push({
+      page: contract.id,
+      title: metadata.title,
+      canonicalUrl: metadata.canonicalUrl,
+    });
   }
 
   const assetVerification = await verifyDistAssets({ directory: distDirectory });
+  const crawlVerification = await verifyDistCrawlFiles({ directory: distDirectory });
   const outputFiles = await listFiles(distDirectory);
+  const outputNames = outputFiles.map((file) => relative(distDirectory, file).replaceAll('\\', '/'));
+  const trustedPaths = assertTrustedDistributionPaths(outputNames, pageHtmlById);
   for (const file of outputFiles) {
     const normalizedName = relative(distDirectory, file).replaceAll('\\', '/');
-    if ((await lstat(file)).isSymbolicLink()) throw new Error(`symbolic-link-artifact: ${normalizedName}`);
-    assertAllowedArtifactFilename(normalizedName);
+    const artifactStat = await lstat(file);
+    if (artifactStat.isSymbolicLink()) throw new Error(`symbolic-link-artifact: ${normalizedName}`);
+    if (!artifactStat.isFile()) throw new Error(`non-regular-artifact: ${normalizedName}`);
+    assertAllowedArtifactFilename(normalizedName, trustedPaths);
     if (TEXT_ARTIFACT_EXTENSIONS.has(extname(normalizedName).toLowerCase())) {
       const content = await readFile(file, 'utf8');
       assertPublishSafeArtifactText(content, normalizedName);
@@ -963,7 +1334,9 @@ export async function verifyDistribution({
   return {
     status: 'verified',
     pages: verifiedPages,
+    metadata: verifiedMetadata,
     assets: assetVerification.assets,
+    crawlFiles: crawlVerification.files,
     files: files.sort((a, b) => a.file.localeCompare(b.file)),
   };
 }

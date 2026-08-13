@@ -653,24 +653,26 @@ test('public verification rejects symlinked approved files when supported', asyn
   }
 });
 
-test('Milestone 6 adds no favicon or social metadata wiring to either HTML entry', async () => {
+test('Milestone 7 templates delegate all favicon, social and JSON-LD wiring to one transform marker', async () => {
   for (const file of ['index.html', 'projects/index.html']) {
     const html = await readFile(file, 'utf8');
     assert.equal(/rel=["'](?:icon|apple-touch-icon)["']/i.test(html), false);
     assert.equal(/(?:og:image|twitter:image|canonical|application\/ld\+json)/i.test(html), false);
-    assert.equal(html.includes('/social/home-og.jpg'), false);
-    assert.equal(html.includes('/social/projects-og.jpg'), false);
+    assert.equal(html.split('<!--page-metadata-->').length - 1, 1);
   }
 });
 
-test('the package scripts use the exact verified Phase B build order with publicDir disabled', async () => {
+test('the package scripts use the exact verified Milestone 7 build order with publicDir disabled', async () => {
   const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
   assert.equal(packageJson.scripts['generate:assets'], 'node scripts/generate-assets.mjs');
   assert.equal(packageJson.scripts['verify:assets'], 'node scripts/verify-assets.mjs');
   assert.equal(packageJson.scripts['copy:assets'], 'node scripts/copy-static-assets.mjs');
+  assert.equal(packageJson.scripts['validate:metadata'], 'node scripts/validate-metadata.mjs');
+  assert.equal(packageJson.scripts['verify:crawl'], 'node scripts/verify-crawl-files.mjs');
+  assert.equal(packageJson.scripts['copy:crawl'], 'node scripts/copy-crawl-files.mjs');
   assert.equal(
     packageJson.scripts.build,
-    'npm run validate:content && npm run verify:assets && npm run build:client && npm run copy:assets && npm run build:ssr && npm run prerender && npm run verify:dist',
+    'npm run validate:content && npm run validate:metadata && npm run verify:assets && npm run verify:crawl && npm run build:client && npm run copy:assets && npm run copy:crawl && npm run build:ssr && npm run prerender && npm run verify:dist',
   );
   const viteConfig = await readFile('vite.config.js', 'utf8');
   assert.match(viteConfig, /\bpublicDir:\s*false\b/);

@@ -2,10 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  FIXED_DISTRIBUTION_PATHS,
   ROOT_END_SENTINEL,
+  assertAllowedArtifactFilename,
+  assertPublishSafeArtifactText,
+  assertTrustedDistributionPaths,
   extractRootMarkup,
   verifyPageHtml,
 } from '../../scripts/verify-dist.mjs';
+import { iconDefinitions } from '../../src/components/ui/iconPaths.js';
+import {
+  transformPageHtml,
+  verifyPageMetadataHtml,
+} from '../../scripts/metadata/html-transform.mjs';
 import {
   portfolioData,
   selectCapabilities,
@@ -208,6 +217,13 @@ test('production verifier accepts a complete mount with nested div elements', ()
   const html = documentWith(markup);
   assert.equal(extractRootMarkup(html, 'fixture'), markup);
   assert.doesNotThrow(() => verifyPageHtml(html, contract));
+});
+
+test('production body and metadata verifiers accept one complete transformed static document', () => {
+  const template = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="dark" /><meta name="theme-color" content="#08111F" /><!--page-metadata--></head><body><div id="root">${completeMarkup()}</div>${ROOT_END_SENTINEL}<script type="module" src="/client.js"></script></body></html>`;
+  const html = transformPageHtml(template, 'home');
+  assert.doesNotThrow(() => verifyPageHtml(html, contract));
+  assert.doesNotThrow(() => verifyPageMetadataHtml(html, 'home'));
 });
 
 test('empty root with populated sibling fails exact-boundary verification', () => {
@@ -426,4 +442,272 @@ test('Projects page rejects an extra unpublished article fixture', () => {
     ),
   );
   assert.throws(() => verifyPageHtml(html, projectsContract), /deterministic order/i);
+});
+
+test('HTML and SVG path privacy exemptions require an exact curated icon payload', async (context) => {
+  const paths = Object.values(iconDefinitions).flatMap((definition) => definition.paths);
+  for (const [index, path] of paths.entries()) {
+    await context.test(`approved path ${index + 1}`, () => {
+      assert.doesNotThrow(() =>
+        assertPublishSafeArtifactText(`<svg><path d="${path}"></path></svg>`, 'index.html'),
+      );
+      assert.doesNotThrow(() =>
+        assertPublishSafeArtifactText(`<svg><path d='${path}'></path></svg>`, 'favicon.svg'),
+      );
+    });
+  }
+
+  const path = iconDefinitions.github.paths[0];
+  const rejected = [
+    ['phone-shaped path', '<svg><path d="Call +999 000 000 000"></path></svg>', /phone-like-value/],
+    ['credential-shaped path', '<svg><path d="api_key=redacted-test-value"></path></svg>', /credential-like-value/],
+    ['approved path plus spacing', `<svg><path d="${path} "></path></svg>`, /phone-like-value/],
+    ['approved path plus character', `<svg><path d="${path} X"></path></svg>`, /phone-like-value/],
+    ['visible path syntax', `<p>Visible d="${path}" text</p>`, /phone-like-value/],
+    ['commented path element', `<svg><!-- <path d="${path}"></path> --></svg>`, /phone-like-value/],
+    ['path syntax inside title value', `<div title='Visible d="${path}" text'></div>`, /phone-like-value/],
+    ['path inside data-note', `<div data-note="${path}"></div>`, /phone-like-value/],
+    ['path inside aria-label', `<div aria-label="${path}"></div>`, /phone-like-value/],
+    ['path inside data-d', `<div data-d="${path}"></div>`, /phone-like-value/],
+    ['d attribute on a non-path element', `<svg><g d="${path}"></g></svg>`, /phone-like-value/],
+    ['path element outside SVG context', `<path d="${path}"></path>`, /phone-like-value/],
+    ['path markup inside script text', `<script type="application/json">"<svg><path d='${path}'></path></svg>"</script>`, /phone-like-value/],
+    ['duplicate d attribute', `<svg><path d="${path}" d="${path}"></path></svg>`, /duplicate-attribute/],
+    ['unterminated d attribute', `<svg><path d="${path}></svg>`, /unterminated-attribute-value/],
+  ];
+  for (const [label, source, rule] of rejected) {
+    await context.test(label, () =>
+      assert.throws(() => assertPublishSafeArtifactText(source, 'index.html'), rule),
+    );
+  }
+});
+
+const BUILD_ASSET_FIXTURE = Object.freeze({
+  home: 'assets/home-AAA111aa.js',
+  navigationScript: 'assets/hydrateNavigation-BBB222bb.js',
+  navigationStyle: 'assets/hydrateNavigation-CCC333cc.css',
+  projects: 'assets/projects-DDD444dd.js',
+  projectsStyle: 'assets/projects-EEE555ee.css',
+});
+
+function moduleScript(pathname) {
+  return `<script type="module" src="/${pathname}"></script>`;
+}
+
+function assetLink(pathname, rel) {
+  return `<link rel="${rel}" href="/${pathname}">`;
+}
+
+function requiredAssetTag(assetKey) {
+  if (assetKey === 'home' || assetKey === 'projects') {
+    return moduleScript(BUILD_ASSET_FIXTURE[assetKey]);
+  }
+  if (assetKey === 'navigationScript') {
+    return assetLink(BUILD_ASSET_FIXTURE[assetKey], 'modulepreload');
+  }
+  return assetLink(BUILD_ASSET_FIXTURE[assetKey], 'stylesheet');
+}
+
+function trustedDistributionFixture() {
+  const pageHtmlById = {
+    home: [
+      requiredAssetTag('home'),
+      requiredAssetTag('navigationScript'),
+      requiredAssetTag('navigationStyle'),
+    ].join(''),
+    projects: [
+      requiredAssetTag('projects'),
+      requiredAssetTag('navigationScript'),
+      requiredAssetTag('navigationStyle'),
+      requiredAssetTag('projectsStyle'),
+    ].join(''),
+  };
+  const outputNames = [
+    ...FIXED_DISTRIBUTION_PATHS,
+    ...Object.values(BUILD_ASSET_FIXTURE),
+  ];
+  return { outputNames, pageHtmlById };
+}
+
+test('the final distribution contract accepts only the exact fixed and reachable logical assets', () => {
+  const { outputNames, pageHtmlById } = trustedDistributionFixture();
+  const trustedPaths = assertTrustedDistributionPaths(outputNames, pageHtmlById);
+  assert.equal(trustedPaths.size, 14);
+  for (const pathname of outputNames) {
+    assert.doesNotThrow(() => assertAllowedArtifactFilename(pathname, trustedPaths));
+  }
+  assert.throws(
+    () => assertAllowedArtifactFilename('unexpected.txt', trustedPaths),
+    /untrusted-distribution-path/,
+  );
+});
+
+test('the final distribution contract rejects every same-extension extra and legacy path', async (context) => {
+  const extras = [
+    'Projects/index.html',
+    'public/legacy.html',
+    'unexpected.txt',
+    'unexpected.json',
+    'extra.js',
+    'assets/home-ORPHAN99.js',
+    'assets/home-AAA111aa.js.map',
+  ];
+  for (const pathname of extras) {
+    await context.test(pathname, () => {
+      const { outputNames, pageHtmlById } = trustedDistributionFixture();
+      outputNames.push(pathname);
+      assert.throws(
+        () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+        /untrusted-distribution-path/,
+      );
+    });
+  }
+});
+
+test('the final distribution contract rejects duplicate and unexpected logical assets', async (context) => {
+  await context.test('duplicate Home bundle', () => {
+    const { outputNames, pageHtmlById } = trustedDistributionFixture();
+    const duplicate = 'assets/home-ZZZ999zz.js';
+    outputNames.push(duplicate);
+    pageHtmlById.home += moduleScript(duplicate);
+    assert.throws(
+      () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+      /duplicate-logical-build-asset/,
+    );
+  });
+  await context.test('unexpected Home stylesheet', () => {
+    const { outputNames, pageHtmlById } = trustedDistributionFixture();
+    const unexpected = 'assets/home-ZZZ999zz.css';
+    outputNames.push(unexpected);
+    pageHtmlById.home += assetLink(unexpected, 'stylesheet');
+    assert.throws(
+      () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+      /unexpected-logical-build-asset/,
+    );
+  });
+  await context.test('data-src does not prove reachability', () => {
+    const { outputNames, pageHtmlById } = trustedDistributionFixture();
+    const orphan = 'assets/home-ZZZ999zz.js';
+    outputNames.push(orphan);
+    pageHtmlById.home += `<script data-src="/${orphan}"></script>`;
+    assert.throws(
+      () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+      /untrusted-distribution-path/,
+    );
+  });
+  await context.test('missing referenced output', () => {
+    const { outputNames, pageHtmlById } = trustedDistributionFixture();
+    outputNames.splice(outputNames.indexOf(BUILD_ASSET_FIXTURE.home), 1);
+    assert.throws(
+      () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+      /missing-reachable-build-asset/,
+    );
+  });
+});
+
+function replaceRequiredAsset(pageHtmlById, pageId, assetKey, replacement) {
+  const approved = requiredAssetTag(assetKey);
+  assert.equal(pageHtmlById[pageId].includes(approved), true);
+  pageHtmlById[pageId] = pageHtmlById[pageId].replace(approved, replacement);
+}
+
+test('asset reachability ignores comments, text, raw script data and unrelated attributes', async (context) => {
+  const homePath = BUILD_ASSET_FIXTURE.home;
+  const navigationPath = BUILD_ASSET_FIXTURE.navigationScript;
+  const cases = [
+    ['commented script', 'home', 'home', `<!-- ${moduleScript(homePath)} -->`],
+    ['commented link', 'home', 'navigationScript', `<!-- ${assetLink(navigationPath, 'modulepreload')} -->`],
+    ['src inside title', 'home', 'home', `<script type="module" title='src="/${homePath}"'></script>`],
+    ['href inside data-note', 'home', 'navigationScript', `<link rel="modulepreload" data-note='href="/${navigationPath}"'>`],
+    ['visible filename text', 'home', 'home', `<p>/${homePath}</p>`],
+    ['filename in script text', 'home', 'home', `<script type="application/json">"/${homePath}"</script>`],
+    ['data-src pseudo-reference', 'home', 'home', `<script type="module" data-src="/${homePath}"></script>`],
+    ['data-href pseudo-reference', 'home', 'navigationScript', `<link rel="modulepreload" data-href="/${navigationPath}">`],
+  ];
+  for (const [label, pageId, assetKey, replacement] of cases) {
+    await context.test(label, () => {
+      const { outputNames, pageHtmlById } = trustedDistributionFixture();
+      replaceRequiredAsset(pageHtmlById, pageId, assetKey, replacement);
+      assert.throws(
+        () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+        /unexpected-page-build-assets/,
+      );
+    });
+  }
+});
+
+test('each logical build asset requires its exact live script or link role', async (context) => {
+  const cases = [
+    ['page JavaScript as stylesheet', 'home', 'home', assetLink(BUILD_ASSET_FIXTURE.home, 'stylesheet')],
+    ['page JavaScript as modulepreload', 'home', 'home', assetLink(BUILD_ASSET_FIXTURE.home, 'modulepreload')],
+    ['shared JavaScript as module script', 'home', 'navigationScript', moduleScript(BUILD_ASSET_FIXTURE.navigationScript)],
+    ['CSS as module script', 'home', 'navigationStyle', moduleScript(BUILD_ASSET_FIXTURE.navigationStyle)],
+    ['CSS as modulepreload', 'home', 'navigationStyle', assetLink(BUILD_ASSET_FIXTURE.navigationStyle, 'modulepreload')],
+    ['wrong rel', 'home', 'navigationScript', assetLink(BUILD_ASSET_FIXTURE.navigationScript, 'preload')],
+    ['missing rel', 'home', 'navigationScript', `<link href="/${BUILD_ASSET_FIXTURE.navigationScript}">`],
+    ['extra rel token', 'home', 'navigationScript', `<link rel="modulepreload stylesheet" href="/${BUILD_ASSET_FIXTURE.navigationScript}">`],
+    ['wrong type', 'home', 'home', `<script type="application/javascript" src="/${BUILD_ASSET_FIXTURE.home}"></script>`],
+    ['missing type', 'home', 'home', `<script src="/${BUILD_ASSET_FIXTURE.home}"></script>`],
+    ['link with conflicting type', 'home', 'navigationScript', `<link rel="modulepreload" type="module" href="/${BUILD_ASSET_FIXTURE.navigationScript}">`],
+    ['script with conflicting rel', 'home', 'home', `<script type="module" rel="modulepreload" src="/${BUILD_ASSET_FIXTURE.home}"></script>`],
+  ];
+  for (const [label, pageId, assetKey, replacement] of cases) {
+    await context.test(label, () => {
+      const { outputNames, pageHtmlById } = trustedDistributionFixture();
+      replaceRequiredAsset(pageHtmlById, pageId, assetKey, replacement);
+      assert.throws(
+        () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+        /wrong-build-(?:asset-role|script-contract|link-contract)/,
+      );
+    });
+  }
+});
+
+test('duplicate and malformed relevant attributes fail closed', async (context) => {
+  const duplicateCases = [
+    ['src', 'home', 'home', `<script type="module" src="/${BUILD_ASSET_FIXTURE.home}" src="/${BUILD_ASSET_FIXTURE.home}"></script>`],
+    ['href', 'home', 'navigationScript', `<link rel="modulepreload" href="/${BUILD_ASSET_FIXTURE.navigationScript}" href="/${BUILD_ASSET_FIXTURE.navigationScript}">`],
+    ['rel', 'home', 'navigationScript', `<link rel="modulepreload" rel="stylesheet" href="/${BUILD_ASSET_FIXTURE.navigationScript}">`],
+    ['type', 'home', 'home', `<script type="module" type="application/javascript" src="/${BUILD_ASSET_FIXTURE.home}"></script>`],
+  ];
+  for (const [attribute, pageId, assetKey, replacement] of duplicateCases) {
+    await context.test(`duplicate ${attribute}`, () => {
+      const { outputNames, pageHtmlById } = trustedDistributionFixture();
+      replaceRequiredAsset(pageHtmlById, pageId, assetKey, replacement);
+      assert.throws(
+        () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+        new RegExp(`duplicate-attribute: (?:script|link)-${attribute}`),
+      );
+    });
+  }
+
+  await context.test('conflicting src and href', () => {
+    const { outputNames, pageHtmlById } = trustedDistributionFixture();
+    replaceRequiredAsset(
+      pageHtmlById,
+      'home',
+      'home',
+      `<script type="module" src="/${BUILD_ASSET_FIXTURE.home}" href="/${BUILD_ASSET_FIXTURE.navigationScript}"></script>`,
+    );
+    assert.throws(
+      () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+      /conflicting-build-asset-reference/,
+    );
+  });
+
+  const malformedCases = [
+    '<script type="module" src="/assets/home-AAA111aa.js',
+    '<link rel="stylesheet" href="/assets/hydrateNavigation-CCC333cc.css',
+    '<script type="module" src=/assets/home-AAA111aa.js></script>',
+  ];
+  for (const [index, malformed] of malformedCases.entries()) {
+    await context.test(`malformed relevant tag ${index + 1}`, () => {
+      const { outputNames, pageHtmlById } = trustedDistributionFixture();
+      pageHtmlById.home += malformed;
+      assert.throws(
+        () => assertTrustedDistributionPaths(outputNames, pageHtmlById),
+        /unterminated-(?:attribute-value|start-tag)|invalid-build-asset-reference/,
+      );
+    });
+  }
 });

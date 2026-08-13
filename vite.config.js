@@ -2,13 +2,14 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { metadataHtmlPlugin } from './scripts/metadata/html-transform.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig(({ isSsrBuild }) => ({
   base: '/',
   publicDir: false,
-  plugins: [react()],
+  plugins: [metadataHtmlPlugin(), react()],
   build: isSsrBuild
     ? {
         outDir: resolve(repositoryRoot, '.prerender'),

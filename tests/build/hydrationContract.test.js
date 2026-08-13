@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import {
   createHydrationMismatchFixture,
   createProjectsHydrationMismatchFixture,
+  verifyBrowser,
 } from '../../scripts/verify-browser.mjs';
 import { getPrimaryNavigationItems } from '../../src/components/layout/navigation.js';
 import { iconDefinitions, iconNames } from '../../src/components/ui/iconPaths.js';
@@ -274,4 +275,14 @@ test('interactive borders meet 3:1 contrast while decorative borders retain thei
     global,
     /\.link-button--secondary:hover\s*\{[^}]*border-color:\s*var\(--color-accent\)/s,
   );
+});
+
+test('the browser production gate retains metadata, 404 and same-origin request verification', async () => {
+  const productionFunction = verifyBrowser.toString();
+  const source = await readFile(new URL('../../scripts/verify-browser.mjs', import.meta.url), 'utf8');
+  assert.match(productionFunction, /getPageMetadata\('home'\)/);
+  assert.match(productionFunction, /getPageJsonLd\('projects'\)/);
+  assert.match(productionFunction, /verifyNotFoundPage/);
+  assert.match(source, /404-\$\{width\}\.png/);
+  assert.match(source, /new URL\(requestUrl\)\.origin !== origin/);
 });

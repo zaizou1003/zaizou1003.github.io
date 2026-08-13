@@ -8,6 +8,7 @@ import { profile } from '../src/data/profile.js';
 import { projects } from '../src/data/projects.js';
 import { selectFeaturedProjects, selectPublishedProjects } from '../src/data/selectors.js';
 import { ALL_PROJECTS_CATEGORY, getAvailableProjectCategories } from '../src/utils/projectFilters.js';
+import { getPageJsonLd, getPageMetadata } from './metadata/manifest.mjs';
 import { HOME_SECTION_ORDER } from './verify-dist.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -19,9 +20,13 @@ const quietWindowMilliseconds = 500;
 const contentTypes = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.html', 'text/html; charset=utf-8'],
+  ['.jpg', 'image/jpeg'],
   ['.js', 'text/javascript; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'],
+  ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.xml', 'application/xml; charset=utf-8'],
 ]);
 
 function delay(milliseconds) {
@@ -30,8 +35,10 @@ function delay(milliseconds) {
 
 async function preparePreviewDirectory() {
   const requestedDirectory =
-    process.env.MILESTONE5_PREVIEW_DIR ?? process.env.MILESTONE4_PREVIEW_DIR;
-  if (!requestedDirectory) return null;
+    process.env.MILESTONE7_PREVIEW_DIR ??
+    process.env.MILESTONE5_PREVIEW_DIR ??
+    process.env.MILESTONE4_PREVIEW_DIR ??
+    resolve(privateReportDirectory, 'milestone-7-previews');
 
   const directory = resolve(requestedDirectory);
   if (
@@ -264,6 +271,8 @@ async function verifyPage(
     expectedProjectArtifactHrefs = [],
     expectedProjectControlsHidden = null,
     expectedProjectFilters = [],
+    expectedMetadata,
+    expectedJsonLd,
     javaScriptEnabled,
     reducedMotion = false,
     screenshotFile = null,
@@ -273,6 +282,8 @@ async function verifyPage(
   const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await connection.send('Target.attachToTarget', { targetId, flatten: true });
   const errors = [];
+  const networkRequests = [];
+  const networkFailures = [];
   const recordRuntimeError = (message) => {
     if (message.sessionId === sessionId) errors.push(message.method);
   };
@@ -293,10 +304,25 @@ async function verifyPage(
   const consoleListeners = connection.listeners.get('Runtime.consoleAPICalled') ?? new Set();
   consoleListeners.add(consoleListener);
   connection.listeners.set('Runtime.consoleAPICalled', consoleListeners);
+  const requestListener = (message) => {
+    if (message.sessionId === sessionId) networkRequests.push(message.params.request.url);
+  };
+  const requestListeners = connection.listeners.get('Network.requestWillBeSent') ?? new Set();
+  requestListeners.add(requestListener);
+  connection.listeners.set('Network.requestWillBeSent', requestListeners);
+  const responseListener = (message) => {
+    if (message.sessionId === sessionId && message.params.response.status >= 400) {
+      networkFailures.push(message.params.response.status);
+    }
+  };
+  const responseListeners = connection.listeners.get('Network.responseReceived') ?? new Set();
+  responseListeners.add(responseListener);
+  connection.listeners.set('Network.responseReceived', responseListeners);
 
   await connection.send('Runtime.enable', {}, sessionId);
   await connection.send('Page.enable', {}, sessionId);
   await connection.send('Log.enable', {}, sessionId);
+  await connection.send('Network.enable', {}, sessionId);
   await connection.send(
     'Emulation.setDeviceMetricsOverride',
     {
@@ -490,7 +516,22 @@ async function verifyPage(
         projectsHydrationStatus: document.querySelector('[data-hydrate-projects]')?.dataset.hydrationStatus ?? null,
         hydrationStatuses: [...document.querySelectorAll('[data-hydration-status]')]
           .map((element) => element.dataset.hydrationStatus),
-        coreTextLength: document.querySelector('#root')?.innerText.trim().length ?? 0
+        coreTextLength: document.querySelector('#root')?.innerText.trim().length ?? 0,
+        metadata: {
+          title: document.title,
+          description: document.querySelector('meta[name="description"]')?.content ?? null,
+          canonical: document.querySelector('link[rel="canonical"]')?.href ?? null,
+          favicon: document.querySelector('link[rel="icon"]')?.getAttribute('href') ?? null,
+          appleIcon: document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href') ?? null,
+          appleSizes: document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('sizes') ?? null,
+          og: Object.fromEntries([...document.querySelectorAll('meta[property^="og:"]')].map((tag) => [tag.getAttribute('property'), tag.content])),
+          twitter: Object.fromEntries([...document.querySelectorAll('meta[name^="twitter:"]')].map((tag) => [tag.getAttribute('name'), tag.content])),
+          jsonLdCount: document.querySelectorAll('script[type="application/ld+json"]').length,
+          jsonLd: (() => {
+            const script = document.querySelector('script[type="application/ld+json"]');
+            return script ? JSON.parse(script.textContent) : null;
+          })()
+        }
       };
     })()`,
   );
@@ -517,6 +558,8 @@ async function verifyPage(
   runtimeListeners.delete(recordRuntimeError);
   logListeners.delete(logListener);
   consoleListeners.delete(consoleListener);
+  requestListeners.delete(requestListener);
+  responseListeners.delete(responseListener);
   if (
     snapshot.heading !== expectedHeading ||
     snapshot.h1Count !== 1 ||
@@ -619,7 +662,43 @@ async function verifyPage(
   if (reducedMotion && !snapshot.reducedMotionApplied) {
     throw new Error(`${path} at ${width}px did not apply the reduced-motion contract.`);
   }
-  return { ...snapshot, interaction, errors, screenshotFile };
+  const expectedMetadataSnapshot = {
+    title: expectedMetadata.title,
+    description: expectedMetadata.description,
+    canonical: expectedMetadata.canonicalUrl,
+    favicon: '/favicon.svg',
+    appleIcon: '/apple-touch-icon.png',
+    appleSizes: '180x180',
+    og: {
+      'og:type': 'website',
+      'og:url': expectedMetadata.canonicalUrl,
+      'og:title': expectedMetadata.title,
+      'og:description': expectedMetadata.description,
+      'og:image': expectedMetadata.socialImageUrl,
+      'og:image:width': '1200',
+      'og:image:height': '630',
+      'og:image:alt': expectedMetadata.socialImageAlt,
+    },
+    twitter: {
+      'twitter:card': 'summary_large_image',
+      'twitter:title': expectedMetadata.title,
+      'twitter:description': expectedMetadata.description,
+      'twitter:image': expectedMetadata.socialImageUrl,
+      'twitter:image:alt': expectedMetadata.socialImageAlt,
+    },
+    jsonLdCount: 1,
+    jsonLd: expectedJsonLd,
+  };
+  if (JSON.stringify(snapshot.metadata) !== JSON.stringify(expectedMetadataSnapshot)) {
+    throw new Error(`${path} at ${width}px has an unexpected metadata or JSON-LD contract.`);
+  }
+  if (
+    networkFailures.length > 0 ||
+    networkRequests.some((requestUrl) => new URL(requestUrl).origin !== origin)
+  ) {
+    throw new Error(`${path} at ${width}px made an external or failed network request.`);
+  }
+  return { ...snapshot, interaction, errors, networkRequestCount: networkRequests.length, screenshotFile };
 }
 
 async function verifyProjectsBehavior(connection, origin) {
@@ -864,6 +943,132 @@ async function verifyProjectsBehavior(connection, origin) {
   }
 }
 
+async function verifyNotFoundPage(connection, origin, previewDirectory, width) {
+  const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await connection.send('Target.attachToTarget', { targetId, flatten: true });
+  const requests = [];
+  const failures = [];
+  const requestListener = (message) => {
+    if (message.sessionId === sessionId) requests.push(message.params.request.url);
+  };
+  const responseListener = (message) => {
+    if (message.sessionId === sessionId && message.params.response.status >= 400) {
+      failures.push(message.params.response.status);
+    }
+  };
+  const requestListeners = connection.listeners.get('Network.requestWillBeSent') ?? new Set();
+  const responseListeners = connection.listeners.get('Network.responseReceived') ?? new Set();
+  requestListeners.add(requestListener);
+  responseListeners.add(responseListener);
+  connection.listeners.set('Network.requestWillBeSent', requestListeners);
+  connection.listeners.set('Network.responseReceived', responseListeners);
+  try {
+    await connection.send('Runtime.enable', {}, sessionId);
+    await connection.send('Page.enable', {}, sessionId);
+    await connection.send('Network.enable', {}, sessionId);
+    await connection.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height: width === 320 ? 900 : 1000, deviceScaleFactor: 1, mobile: width === 320 },
+      sessionId,
+    );
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.navigate', { url: `${origin}/404.html` }, sessionId);
+    await loaded;
+    await delay(quietWindowMilliseconds);
+    const snapshot = await evaluate(
+      connection,
+      sessionId,
+      `(() => {
+        const links = [...document.querySelectorAll('a[href]')];
+        const actionable = links.filter((link) => {
+          const rect = link.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        const focusTarget = document.querySelector('a.primary-link');
+        focusTarget?.focus({ preventScroll: true });
+        const focusStyle = focusTarget ? getComputedStyle(focusTarget) : null;
+        return {
+          title: document.title,
+          language: document.documentElement.lang,
+          noindexCount: document.querySelectorAll('meta[name="robots"][content="noindex"]').length,
+          mainCount: document.querySelectorAll('main#main').length,
+          h1Count: document.querySelectorAll('h1').length,
+          heading: document.querySelector('h1')?.textContent.trim(),
+          text: document.body.innerText.trim(),
+          hrefs: links.map((link) => link.getAttribute('href')),
+          scriptCount: document.querySelectorAll('script').length,
+          formCount: document.querySelectorAll('form').length,
+          canonicalCount: document.querySelectorAll('link[rel="canonical"]').length,
+          jsonLdCount: document.querySelectorAll('script[type="application/ld+json"]').length,
+          targetMinimum: actionable.every((link) => {
+            const rect = link.getBoundingClientRect();
+            return rect.width >= 44 && rect.height >= 44;
+          }),
+          focusWidth: focusStyle?.outlineWidth,
+          focusStyle: focusStyle?.outlineStyle,
+          focusOffset: focusStyle?.outlineOffset,
+          horizontalOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > document.documentElement.clientWidth + 1
+        };
+      })()`,
+    );
+    const expectedText = [
+      'Ahmed Aziz Ben Aissa',
+      'AI Systems Engineer',
+      '404',
+      'Page not found',
+      'The page you requested does not exist or may have moved.',
+      'Return home',
+      'View projects',
+    ];
+    if (
+      snapshot.title !== 'Page Not Found — Ahmed Aziz Ben Aissa' ||
+      snapshot.language !== 'en' ||
+      snapshot.noindexCount !== 1 ||
+      snapshot.mainCount !== 1 ||
+      snapshot.h1Count !== 1 ||
+      snapshot.heading !== 'Page not found' ||
+      expectedText.some((value) => !snapshot.text.includes(value)) ||
+      JSON.stringify(snapshot.hrefs) !== JSON.stringify(['/', '/', '/projects/']) ||
+      snapshot.scriptCount !== 0 ||
+      snapshot.formCount !== 0 ||
+      snapshot.canonicalCount !== 0 ||
+      snapshot.jsonLdCount !== 0 ||
+      !snapshot.targetMinimum ||
+      snapshot.focusWidth !== '3px' ||
+      snapshot.focusStyle !== 'solid' ||
+      snapshot.focusOffset !== '3px' ||
+      snapshot.horizontalOverflow
+    ) {
+      throw new Error(`404.html at ${width}px failed its standalone accessibility contract.`);
+    }
+    if (
+      failures.length > 0 ||
+      requests.some((requestUrl) => new URL(requestUrl).origin !== origin)
+    ) {
+      throw new Error(`404.html at ${width}px made an external or failed network request.`);
+    }
+    const screenshotFile = resolve(previewDirectory, `404-${width}.png`);
+    const screenshot = await connection.send(
+      'Page.captureScreenshot',
+      { format: 'png', captureBeyondViewport: true, fromSurface: true },
+      sessionId,
+    );
+    await writeFile(screenshotFile, Buffer.from(screenshot.data, 'base64'));
+    return {
+      path: '/404.html',
+      width,
+      status: 'standalone',
+      horizontalOverflow: false,
+      networkRequestCount: requests.length,
+      screenshot: screenshotFile,
+    };
+  } finally {
+    requestListeners.delete(requestListener);
+    responseListeners.delete(responseListener);
+    await connection.send('Target.closeTarget', { targetId });
+  }
+}
+
 export async function verifyBrowser() {
   const browserExecutable = await findBrowserExecutable();
   const staticServer = await startStaticServer();
@@ -897,6 +1102,8 @@ export async function verifyBrowser() {
         screenshotWidths: [320, 1440],
         widths: [320, 768, 1440],
         path: '/',
+        expectedMetadata: getPageMetadata('home'),
+        expectedJsonLd: getPageJsonLd('home'),
         expectedHeading: 'Ahmed Aziz Ben Aissa',
         expectedHomeSections: HOME_SECTION_ORDER,
         expectedFeaturedProjectIds: selectFeaturedProjects(projects).map((project) => project.id),
@@ -921,6 +1128,8 @@ export async function verifyBrowser() {
         screenshotWidths: [320, 768, 1440],
         widths: [320, 768, 1440],
         path: '/projects/',
+        expectedMetadata: getPageMetadata('projects'),
+        expectedJsonLd: getPageJsonLd('projects'),
         expectedHeading: 'Projects',
         expectedProjectArticleIds: publishedProjectIds,
         expectedProjectArtifactHrefs: selectPublishedProjects(projects)
@@ -942,9 +1151,12 @@ export async function verifyBrowser() {
     const noJavaScript = [];
     const reducedMotion = [];
     const screenshots = [];
+    const legacyPageScreenshotsRequested = Boolean(
+      process.env.MILESTONE5_PREVIEW_DIR ?? process.env.MILESTONE4_PREVIEW_DIR,
+    );
     for (const contract of contracts) {
       for (const width of contract.widths) {
-        const screenshotFile = previewDirectory && contract.screenshotWidths.includes(width)
+        const screenshotFile = legacyPageScreenshotsRequested && contract.screenshotWidths.includes(width)
           ? resolve(previewDirectory, `${contract.screenshotPrefix}-${width}.png`)
           : null;
         const result = await verifyPage(connection, staticServer.origin, {
@@ -1009,6 +1221,12 @@ export async function verifyBrowser() {
     }
 
     const projectsBehavior = await verifyProjectsBehavior(connection, staticServer.origin);
+    const notFound = [];
+    for (const width of [320, 1440]) {
+      const result = await verifyNotFoundPage(connection, staticServer.origin, previewDirectory, width);
+      notFound.push(result);
+      screenshots.push(result.screenshot);
+    }
 
     const mismatch = await verifyPage(connection, staticServer.origin, {
       ...contracts[0],
@@ -1037,6 +1255,7 @@ export async function verifyBrowser() {
       mismatchDetected: true,
       projectsMismatchDetected: true,
       projectsBehavior,
+      notFound,
       screenshots,
     };
   } finally {

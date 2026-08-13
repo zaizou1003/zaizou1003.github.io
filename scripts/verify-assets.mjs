@@ -18,6 +18,7 @@ import {
   publicDirectory,
   socialCardCopy,
 } from './assets/manifest.mjs';
+import { approvedCrawlDistPaths } from './static/manifest.mjs';
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SAFE_PNG_ANCILLARY_CHUNKS = new Set(['cHRM', 'gAMA', 'sRGB']);
@@ -55,6 +56,7 @@ const ALLOWED_NON_ASSET_DIST_PATHS = Object.freeze([
   /^projects\/index\.html$/,
   /^assets\/[^/]+\.(?:css|js)$/,
 ]);
+const APPROVED_CRAWL_DIST_PATHS = new Set(approvedCrawlDistPaths);
 
 const crcTable = Array.from({ length: 256 }, (_, value) => {
   let current = value;
@@ -637,6 +639,7 @@ export async function verifyDistAssets({
   const expectedAssetPaths = new Set(approvedDistPaths);
   for (const file of files) {
     if (expectedAssetPaths.has(file)) continue;
+    if (APPROVED_CRAWL_DIST_PATHS.has(file)) continue;
     if (!ALLOWED_NON_ASSET_DIST_PATHS.some((pattern) => pattern.test(file))) {
       throw new Error(`unexpected-dist-asset: ${file}`);
     }
