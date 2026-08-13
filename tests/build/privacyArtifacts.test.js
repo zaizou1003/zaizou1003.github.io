@@ -35,6 +35,28 @@ test('approved public facts and metrics do not trigger artifact privacy rules', 
   assert.deepEqual(inspectArtifactText(publicText), []);
 });
 
+test('approved text-only certification facts remain publish-safe artifacts', () => {
+  const publicCertificationText = [
+    'Microsoft Certified: Azure AI Apps and Agents Developer Associate',
+    'Introduction to Model Context Protocol',
+    'AI Agent Course',
+    'Microsoft Certified: Azure Data Scientist Associate',
+    'Connect and Protect: Networks and Network Security',
+    'Play It Safe: Manage Security Risks',
+    'Foundations of Cybersecurity',
+    'AI Agents Fundamentals',
+    'Fundamentals of Deep Learning',
+    'Applications of AI for Predictive Maintenance',
+    'Building Transformer-Based NLP Applications',
+    'Issued July 2026 Expires July 2027 Expired July 2026',
+  ].join(' ');
+
+  assert.deepEqual(inspectArtifactText(publicCertificationText), []);
+  assert.doesNotThrow(() =>
+    assertPublishSafeArtifactText(publicCertificationText, 'assets/home.js'),
+  );
+});
+
 test('artifact extension allowlist and private filenames are enforced', () => {
   assert.doesNotThrow(() => assertAllowedArtifactFilename('assets/site.webp'));
   assert.throws(() => assertAllowedArtifactFilename('assets/site.map'), /artifact-extension/);

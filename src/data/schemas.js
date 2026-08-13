@@ -33,10 +33,15 @@ export const FLAGSHIP_PROJECTS = Object.freeze(
 );
 
 export const FEATURED_CERTIFICATIONS = Object.freeze(
-  APPROVED_CERTIFICATION_CONTRACTS.map(({ id, title, issuer, featuredOrder }) =>
-    Object.freeze({ id, title, issuer, featuredOrder }),
-  ),
+  APPROVED_CERTIFICATION_CONTRACTS
+    .filter(({ featuredOrder }) => Number.isInteger(featuredOrder))
+    .sort((left, right) => left.featuredOrder - right.featuredOrder)
+    .map(({ id, title, issuer, featuredOrder }) =>
+      Object.freeze({ id, title, issuer, featuredOrder }),
+    ),
 );
+
+export const CERTIFICATION_COUNT = APPROVED_CERTIFICATION_CONTRACTS.length;
 
 export class ContentValidationError extends Error {
   constructor(message) {
@@ -103,6 +108,16 @@ function assertUniqueIds(records, path) {
     assertKebabId(record.id, `${path}[${index}].id`);
     if (ids.has(record.id)) fail(`${path} contains duplicate id ${record.id}.`);
     ids.add(record.id);
+  });
+}
+
+function assertUniqueTitles(records, path) {
+  const titles = new Set();
+  records.forEach((record, index) => {
+    assertString(record.title, `${path}[${index}].title`);
+    const normalized = record.title.normalize('NFKC').toLocaleLowerCase('en-US');
+    if (titles.has(normalized)) fail(`${path} contains duplicate title ${record.title}.`);
+    titles.add(normalized);
   });
 }
 
@@ -604,14 +619,16 @@ function assertSkillGroups(skillGroups, projects, experiences) {
   });
 }
 
-function assertCertifications(certifications) {
-  if (!Array.isArray(certifications) || certifications.length !== FEATURED_CERTIFICATIONS.length) {
-    fail('certifications must contain exactly the three approved records.');
+export function assertCertifications(certifications) {
+  assertPublishSafeTree(certifications, 'certifications');
+  if (!Array.isArray(certifications) || certifications.length !== CERTIFICATION_COUNT) {
+    fail(`certifications must contain exactly the ${CERTIFICATION_COUNT} approved records.`);
   }
   assertUniqueIds(certifications, 'certifications');
-  const sorted = certifications.slice().sort((left, right) => left.featuredOrder - right.featuredOrder);
+  assertUniqueTitles(certifications, 'certifications');
+  const featuredOrders = new Set();
 
-  sorted.forEach((certification, index) => {
+  certifications.forEach((certification, index) => {
     const path = `certifications[${index}]`;
     assertAllowedKeys(
       certification,
@@ -621,13 +638,57 @@ function assertCertifications(certifications) {
         'issuer',
         'issuedDate',
         'expiresDate',
+        'credentialStatus',
         'credentialUrl',
-        'image',
         'featuredOrder',
         'publicationStatus',
       ],
       path,
     );
+    assertString(certification.issuer, `${path}.issuer`);
+    assertYearMonth(certification.issuedDate, `${path}.issuedDate`);
+    if (certification.expiresDate !== null) {
+      assertYearMonth(certification.expiresDate, `${path}.expiresDate`);
+      if (certification.expiresDate < certification.issuedDate) {
+        fail(`${path}.expiresDate precedes its issue date.`);
+      }
+    }
+    if (certification.expiresDate === null && certification.credentialStatus !== null) {
+      fail(`${path}.credentialStatus must be null when expiresDate is null.`);
+    }
+    if (
+      certification.expiresDate !== null &&
+      !['active', 'expired'].includes(certification.credentialStatus)
+    ) {
+      fail(`${path}.credentialStatus must be active or expired when expiresDate is present.`);
+    }
+    assertNullableString(certification.credentialUrl, `${path}.credentialUrl`);
+    if (certification.credentialUrl !== null) {
+      assertSafeUrl(certification.credentialUrl, `${path}.credentialUrl`);
+    }
+    if (certification.featuredOrder !== null && ![1, 2, 3].includes(certification.featuredOrder)) {
+      fail(`${path}.featuredOrder must be 1, 2, 3, or null.`);
+    }
+    if (certification.featuredOrder !== null) {
+      if (featuredOrders.has(certification.featuredOrder)) {
+        fail('certifications contains duplicate featured orders.');
+      }
+      featuredOrders.add(certification.featuredOrder);
+    }
+    assertPublicationStatus(certification.publicationStatus, `${path}.publicationStatus`);
+    const expected = APPROVED_CERTIFICATION_CONTRACTS.find(({ id }) => id === certification.id);
+    if (!expected) fail(`${path}.id is not an owner-approved certification.`);
+    assertApprovedFields(certification, expected, path);
+  });
+
+  const featured = certifications
+    .filter(({ featuredOrder }) => Number.isInteger(featuredOrder))
+    .slice()
+    .sort((left, right) => left.featuredOrder - right.featuredOrder);
+  if (featured.length !== FEATURED_CERTIFICATIONS.length) {
+    fail('certifications must contain exactly three featured records.');
+  }
+  featured.forEach((certification, index) => {
     const expected = FEATURED_CERTIFICATIONS[index];
     if (
       certification.id !== expected.id ||
@@ -635,23 +696,10 @@ function assertCertifications(certifications) {
       certification.issuer !== expected.issuer ||
       certification.featuredOrder !== expected.featuredOrder
     ) {
-      fail(`Certification order ${index + 1} does not match the approved record.`);
+      fail(`Certification featured order ${index + 1} does not match the approved record.`);
     }
-    if (certification.issuedDate !== undefined) assertYearMonth(certification.issuedDate, `${path}.issuedDate`);
-    if (certification.expiresDate !== undefined) {
-      assertYearMonth(certification.expiresDate, `${path}.expiresDate`);
-      if (certification.issuedDate && certification.expiresDate < certification.issuedDate) {
-        fail(`${path}.expiresDate precedes its issue date.`);
-      }
-    }
-    assertNullableString(certification.credentialUrl, `${path}.credentialUrl`);
-    if (certification.credentialUrl !== null) {
-      assertSafeUrl(certification.credentialUrl, `${path}.credentialUrl`);
-    }
-    if (certification.image !== undefined) assertImage(certification.image, `${path}.image`);
-    assertPublicationStatus(certification.publicationStatus, `${path}.publicationStatus`);
-    assertApprovedFields(certification, APPROVED_CERTIFICATION_CONTRACTS[index], path);
   });
+  return true;
 }
 
 function assertEducation(education) {

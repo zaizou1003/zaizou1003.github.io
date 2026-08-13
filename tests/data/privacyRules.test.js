@@ -66,6 +66,45 @@ test('unsafe schemes, signed parameters and URL shorteners fail', async (context
   }
 });
 
+test('certification credential URLs remain null and reject unsafe publication values', async (context) => {
+  assert.ok(portfolioData.certifications.every((record) => record.credentialUrl === null));
+
+  const unsafeCredentialUrls = [
+    'javascript:alert(1)',
+    'http://example.com/credential',
+    'https://example.com/credential?token=redacted',
+    'https://example.com/credential#signature=redacted',
+    'https://sub.bit.ly./credential',
+  ];
+  for (const unsafeUrl of unsafeCredentialUrls) {
+    await context.test(unsafeUrl.slice(0, 36), () => {
+      const data = cloneData();
+      data.certifications[0].credentialUrl = unsafeUrl;
+      assert.throws(
+        () => validatePortfolioData(data),
+        /HTTPS|signed or expiring URL|parameters|fragments|shortener|owner-approved/i,
+      );
+    });
+  }
+});
+
+test('certification text is scanned for private values before publication', async (context) => {
+  const fixtures = [
+    ['visible phone', 'Call +999 000 000 000'],
+    ['credential', 'api_key=redacted-test-value'],
+  ];
+  for (const [name, value] of fixtures) {
+    await context.test(name, () => {
+      const data = cloneData();
+      data.certifications[5].title = value;
+      assert.throws(
+        () => validatePortfolioData(data),
+        /phone-like private content|credential-like private content/i,
+      );
+    });
+  }
+});
+
 test('unapproved employer or private repository URLs fail', () => {
   const data = cloneData();
   data.projects[0].repositoryUrl = 'https://github.com/vroomvroom/internal-agent';

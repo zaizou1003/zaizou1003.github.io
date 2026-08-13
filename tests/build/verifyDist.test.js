@@ -20,10 +20,12 @@ import {
   selectCapabilities,
   selectFeaturedCertifications,
   selectFeaturedProjects,
+  selectPublishedCertifications,
   selectPublishedEducation,
   selectPublishedExperience,
   selectPublishedProjects,
   selectPublishedSkillGroups,
+  selectRemainingCertifications,
 } from '../../src/data/index.js';
 import { formatMonthRange, formatMonthYear, formatYearRange } from '../../src/utils/dates.js';
 import {
@@ -62,7 +64,7 @@ function completeMarkup(pageId = 'home') {
   return [
     '<a class="skip-link" href="#main">Skip to main content</a>',
     '<header class="site-header"><div data-hydrate-navigation>',
-    '<nav aria-label="Primary"><details><summary>Menu</summary>',
+    '<nav aria-label="Primary"><details class="site-nav__disclosure"><summary class="site-nav__summary">Menu</summary>',
     `<ul>${primaryLinks(pageId)}</ul></details></nav>`,
     '</div></header>',
     `<main id="main" data-static-page="${pageId}">${mainContent}</main>`,
@@ -132,12 +134,23 @@ function homeNarrative() {
         `<article data-skill-group-id="${group.id}"><h3>${group.title}</h3>${group.skills.map((skill) => `<span>${skill.name}</span>`).join('')}</article>`,
     )
     .join('');
-  const certificationMarkup = selectFeaturedCertifications(portfolioData.certifications)
-    .map(
-      (record) =>
-        `<article data-certification-id="${record.id}"><p>${record.issuer}</p><h3>${record.title}</h3><p>${formatMonthYear(record.issuedDate)}${record.expiresDate ? ` ${formatMonthYear(record.expiresDate)}` : ''}</p></article>`,
-    )
+  const certificationArticle = (record, position) => {
+    const validity = record.credentialStatus === 'active'
+      ? `<p>Expires ${formatMonthYear(record.expiresDate)}</p>`
+      : record.credentialStatus === 'expired'
+        ? `<p>Expired ${formatMonthYear(record.expiresDate)}</p>`
+        : '';
+    return `<article data-certification-id="${record.id}"><p>Credential ${position}</p><h3>${record.title}</h3><p>${record.issuer}</p><p>Issued ${formatMonthYear(record.issuedDate)}</p>${validity}</article>`;
+  };
+  const featuredCertifications = selectFeaturedCertifications(portfolioData.certifications);
+  const remainingCertifications = selectRemainingCertifications(portfolioData.certifications);
+  const featuredCertificationMarkup = featuredCertifications
+    .map((record, index) => `<li>${certificationArticle(record, index + 1)}</li>`)
     .join('');
+  const remainingCertificationMarkup = remainingCertifications
+    .map((record, index) => `<li>${certificationArticle(record, featuredCertifications.length + index + 1)}</li>`)
+    .join('');
+  const certificationMarkup = `<ol data-certification-list="featured">${featuredCertificationMarkup}</ol><details data-certification-disclosure><summary>View all certifications (8 more)</summary><ol data-certification-list="remaining" start="4">${remainingCertificationMarkup}</ol></details>`;
   const educationMarkup = selectPublishedEducation(portfolioData.education)
     .map(
       (record) =>
@@ -158,7 +171,7 @@ function homeNarrative() {
     `<section id="experience" data-home-section="experience">${experienceMarkup}</section>`,
     '<section id="selected-work" data-home-section="selected-work"><p data-selected-work-state="evidence-review">Only evidence-reviewed work is published here; additional technical case studies remain under validation.</p></section>',
     `<section id="skills" data-home-section="skills">${skillMarkup}</section>`,
-    `<section id="certifications" data-home-section="certifications">${certificationMarkup}</section>`,
+    `<section id="certifications" data-home-section="certifications"><h2>Verified learning and platform credentials</h2>${certificationMarkup}</section>`,
     `<section id="education" data-home-section="education">${educationMarkup}</section>`,
     `<section id="contact" data-home-section="contact">${contacts}</section>`,
   ].join('');
@@ -321,6 +334,84 @@ test('homepage requires the exact stable section order', () => {
     ),
   );
   assert.throws(() => verifyPageHtml(html, contract), /section order/i);
+});
+
+test('homepage requires the complete native certification disclosure contract', async (context) => {
+  const markup = completeMarkup();
+  const publishedIds = selectPublishedCertifications(portfolioData.certifications).map(
+    (record) => record.id,
+  );
+  assert.deepEqual(publishedIds.length, 11);
+  assert.doesNotThrow(() => verifyPageHtml(documentWith(markup), contract));
+
+  const fixtures = [
+    [
+      'missing certification',
+      markup.replace(`data-certification-id="${publishedIds.at(-1)}"`, 'data-certification-id="missing"'),
+      /exact remaining certification order|every published certification|missing certification/i,
+    ],
+    [
+      'wrong summary count',
+      markup.replace('View all certifications (8 more)', 'View all certifications (7 more)'),
+      /unexpected certification disclosure summary/i,
+    ],
+    [
+      'disclosure opened by default',
+      markup.replace('<details data-certification-disclosure>', '<details open data-certification-disclosure>'),
+      /must not open/i,
+    ],
+    [
+      'scripted disclosure state',
+      markup.replace(
+        '<summary>View all certifications (8 more)</summary>',
+        '<summary aria-expanded="false">View all certifications (8 more)<button aria-label="Open"></button></summary>',
+      ),
+      /native state without nested controls/i,
+    ],
+    [
+      'incorrect expired wording',
+      markup.replace('Expired July 2026', 'Expires July 2026'),
+      /approved certification dates/i,
+    ],
+    [
+      'certification hydration marker',
+      markup.replace(
+        '<section id="certifications"',
+        '<section data-hydrate-certifications id="certifications"',
+      ),
+      /outside hydration islands/i,
+    ],
+    [
+      'nested navigation landmark',
+      markup.replace(
+        '<ol data-certification-list="remaining"',
+        '<nav><ol data-certification-list="remaining"',
+      ).replace('</ol></details>', '</ol></nav></details>'),
+      /must not introduce an extra landmark or section/i,
+    ],
+    [
+      'missing card heading',
+      markup.replace('<h3>AI Agents Fundamentals</h3>', '<p>AI Agents Fundamentals</p>'),
+      /must contain exactly one h3/i,
+    ],
+  ];
+
+  for (const [name, changedMarkup, error] of fixtures) {
+    await context.test(name, () => {
+      assert.throws(() => verifyPageHtml(documentWith(changedMarkup), contract), error);
+    });
+  }
+
+  await context.test('null credential URL cannot render a placeholder link', () => {
+    const firstId = publishedIds[0];
+    const articleStart = markup.indexOf(`data-certification-id="${firstId}"`);
+    const articleEnd = markup.indexOf('</article>', articleStart);
+    const changedMarkup = `${markup.slice(0, articleEnd)}<a href="#">View credential</a>${markup.slice(articleEnd)}`;
+    assert.throws(
+      () => verifyPageHtml(documentWith(changedMarkup), contract),
+      /unapproved credential control/i,
+    );
+  });
 });
 
 test('a project with null artifact URLs cannot render a placeholder anchor', () => {

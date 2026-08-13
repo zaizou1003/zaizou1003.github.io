@@ -195,13 +195,13 @@ Purpose: show an evidence-backed technical toolkit aligned with AI systems engin
 
 ### 8. Certifications
 
-Purpose: provide three current, high-signal credentials in this exact order:
+Purpose: feature three high-signal credentials in this exact order, then expose the eight remaining verified credentials through one native progressive disclosure:
 
 1. Microsoft Certified: Azure AI Apps and Agents Developer Associate
 2. Anthropic: Introduction to Model Context Protocol
 3. Hugging Face: AI Agent Course
 
-Show issuer, exact credential title, verified issue/completion date when supplied, and a stable public credential link when available. Do not use signed URLs or recovered certificate images by default. Text-first cards with an optional approved issuer mark are sufficient.
+All 11 text-only records render in semantic, pre-rendered HTML. The first three appear before a closed `<details>` element whose `<summary>` is exactly "View all certifications (8 more)"; the remaining eight appear inside it in deterministic issue-date, issuer, title, and ID order. The disclosure requires no JavaScript and contains no nested control or redundant ARIA state. Show issuer, exact title, "Issued Month Year" and, only when approved, "Expires Month Year" or "Expired Month Year". All Milestone 7.5 `credentialUrl` values are `null`, so no placeholder credential control renders. Certificate images, issuer marks, credential IDs, QR codes, private identifiers, signed URLs, and recovered assets are prohibited.
 
 ### 9. Education
 
@@ -256,7 +256,7 @@ GitHub Pages serves `/projects/` by resolving the directory index. Normal links 
 - Each source HTML entry contains exactly one marker such as `<div id="root"><!--app-html--></div>`. `scripts/prerender.mjs` requires that marker exactly once, injects the matching server-rendered markup, and fails rather than emitting a partial page when a marker/page render is missing.
 - Server and client initial renders use identical data, props, ordering, and initial state. Initial render code must not depend on `window`, random values, current time, browser locale, viewport width, or other nondeterministic inputs.
 - Each island wrapper is server-rendered with a stable identifier and the exact same initial props/markup that its client entry passes to `hydrateRoot`. Browser-only enhancements are attached during/after hydration. Hydration warnings are test failures; `suppressHydrationWarning` must not conceal structural mismatches.
-- The generated `dist/index.html` must already contain the site navigation, homepage `<h1>`, capabilities, three flagship projects, professional experience, selected work, skills, certifications, education, contact links, and footer before any client JavaScript runs.
+- The generated `dist/index.html` must already contain the site navigation, homepage `<h1>`, capabilities, three flagship projects, professional experience, selected work, skills, all 11 certification titles, issuers, issue dates and approved expiry/status wording, education, contact links, and footer before any client JavaScript runs.
 - The generated `dist/projects/index.html` must already contain navigation, the Projects `<h1>`, introduction, every published project article and artifact link, contact links, and footer before any client JavaScript runs.
 
 ### Build sequence
@@ -434,6 +434,7 @@ plain local data modules
 - `server.jsx` is a build-time-only entry that renders both page components with `react-dom/server`; no server process is deployed.
 - `home.client.jsx` and `projects.client.jsx` locate explicit interactive-island containers and hydrate those existing subtrees with `hydrateRoot`. Static headings, prose, cards outside an interactive island, experience, and contact content are not hydrated. Client code never replaces a populated mount with `createRoot`.
 - `HomePage` composes the eleven locked sections in order.
+- The Certifications section renders exactly three featured cards plus eight remaining cards in a native `<details>/<summary>` disclosure. It is static server-rendered content outside every hydration island and remains fully operable without JavaScript.
 - `ProjectsPage` composes the shared layout, filters, and project articles.
 - Header, footer, cards, and content components receive data via props; they do not import a monolithic global object.
 - No global state library. Local state is limited to mobile-navigation disclosure and optional project filter selection.
@@ -600,15 +601,18 @@ Certification = {
   id: string,
   title: string,
   issuer: string,
-  issuedDate?: string,
+  issuedDate: string,                     // YYYY-MM
+  expiresDate: string | null,             // YYYY-MM when approved
+  credentialStatus: 'active' | 'expired' | null,
   credentialUrl: string | null,
-  image?: Image,
-  featuredOrder: 1 | 2 | 3,
+  featuredOrder: 1 | 2 | 3 | null,
   publicationStatus: PublicationStatus
 }
 ```
 
-The validator fixes the three locked titles and order. Credential URLs must be stable issuer/verification pages with no signature or expiring authorization parameters. Images are optional and excluded until approved.
+The validator requires exactly 11 owner-approved published records, stable lowercase kebab-case IDs, case-insensitively unique titles, and exactly the three locked featured IDs/orders. Status is `null` when expiry is absent; a non-null expiry requires `active` or `expired`, and chronology is validated without consulting the current clock. All current credential URLs are `null`; any future URL requires separate approval and must be a stable HTTPS issuer/verification page without queries, fragments, signatures, expiry parameters, or shorteners. Images and extra/private fields—including credential IDs, badge IDs, verification codes, QR codes, and private identifiers—fail validation.
+
+Selectors are pure and non-mutating. Featured records sort by `featuredOrder`. Remaining published records sort by issue date descending, issuer ascending, title ascending, then stable ID ascending. The featured and remaining selectors must form a deterministic, disjoint, non-duplicated union of all 11 published records.
 
 ### Education
 
@@ -751,6 +755,7 @@ Acceptance requirements at every size:
 - Test portrait/landscape, 200% browser zoom, and text-only enlargement.
 - No horizontal document scrolling at 320 px or 400% zoom at a 1280 px viewport, except an explicitly scrollable code/data region.
 - Navigation, filters, images, long technology names, and approved long project titles wrap without overlap.
+- At 320, 768, and 1440 px, the certification summary and long certification titles wrap without clipping; the featured and remaining grids preserve source order and never create horizontal overflow.
 - Images declare intrinsic dimensions; layout does not jump as they load.
 - Touch behavior exposes the same content as hover/focus.
 
@@ -775,6 +780,7 @@ Target WCAG 2.2 AA. Definition requires automated and manual evidence:
 15. Automated axe checks report zero serious/critical violations on `/` and `/projects/`; static linting includes JSX accessibility rules.
 16. Manual keyboard review passes in current Chromium and Firefox. One manual screen-reader pass is recorded with NVDA/Firefox or VoiceOver/Safari.
 17. With JavaScript disabled, both pages retain their landmarks, heading structure, navigation, project/experience content, and contact links. Mobile navigation remains operable through native HTML or is fully visible, and Projects falls back to the complete unfiltered list.
+18. The certification `<summary>` has a 44-by-44 px minimum target, visible focus, and native pointer, Enter, and Space operation with and without JavaScript. It has no nested interactive element, scripted `aria-expanded`, modal, carousel, pagination, or hydration island; all 11 cards remain readable in the document.
 
 ## 11. SEO and social metadata strategy
 
@@ -796,7 +802,7 @@ Projects:
 
 Both HTML entries include charset, viewport, theme colour, favicon links, `og:type=website`, canonical URL, Open Graph URL/title/description/image, and Twitter card metadata. Do not use meta keywords, placeholder domains, GitHub profile URLs as canonicals, remote images, or runtime-only metadata.
 
-Both **generated** HTML entries must also contain their complete semantic page bodies at build time. Search/social/crawl quality must not depend on a crawler executing the hydration bundle. `dist/index.html` must expose the owner heading, navigation, capability headings, featured project titles, experience employers, certification/education headings, and contact-link labels as ordinary HTML text. `dist/projects/index.html` must expose its page heading and every published project title, summary, evidence text, and public artifact link. Hydration is an enhancement, not the SEO content source.
+Both **generated** HTML entries must also contain their complete semantic page bodies at build time. Search/social/crawl quality must not depend on a crawler executing the hydration bundle. `dist/index.html` must expose the owner heading, navigation, capability headings, featured project titles, experience employers, all 11 certification titles/issuers/dates with "Expires July 2027" and "Expired July 2026" where approved, education headings, and contact-link labels as ordinary HTML text. `dist/projects/index.html` must expose its page heading and every published project title, summary, evidence text, and public artifact link. Hydration is an enhancement, not the SEO content source.
 
 `verify-dist.mjs` parses or structurally inspects both files after prerendering. A mere `<div id="root"></div>`, a mount containing only whitespace/comment markers, missing required landmark/headings, or missing locked project/experience/contact text is a build failure. String byte-size alone is not sufficient verification.
 
@@ -879,7 +885,7 @@ At implementation time, use the current official Actions majors or, preferably, 
 - Strip EXIF/GPS/device metadata from approved personal images.
 - Inspect screenshots for tokens, signed URLs, private datasets, employer/client identifiers, notifications, and personal information before commit.
 - Do not migrate the 89 MB GLB or any MyMind asset. Do not use the large View All image; use a text link/card.
-- Certification cards are text-first. Recovered certificate images remain excluded until an explicit privacy/credential-ID/QR review approves a replacement.
+- Certification cards are text-only in Milestone 7.5. No certificate screenshot, QR code, credential image, issuer logo, remote image, or recovered certificate asset is permitted.
 - Published project cards may remain text-first with `image: null` until approved, optimized Milestone 6 evidence imagery is available; no placeholder or recovered image is required for publication.
 - Alt text describes the meaningful visual evidence, not the project title alone. Decorative images use empty alt.
 
@@ -894,7 +900,7 @@ Testing packages are dev-only and are added only together with real tests. Recom
 - Only `published` records reach public selectors.
 - LiveCoach/System Dynamics remain excluded until their evidence status changes through an approved data edit.
 - Experience ordering and ISO date parsing; Ayming present from 2025-10 and VroomVroom from 2025-06 through 2025-08.
-- Required certification title/order contract.
+- Certification contracts require exactly 11 published records, exactly three featured in locked order, exactly eight deterministically ordered remaining records, and a disjoint, non-duplicated complete union; expiry/status compatibility, unsafe URLs, images, extra fields, and private identifiers fail.
 - Every evidence project reference resolves.
 - URLs use permitted schemes/hosts and reject signature/token-like parameters.
 - Data contracts contain no forbidden personal fields or service-credential keys.
@@ -910,6 +916,7 @@ Testing packages are dev-only and are added only together with real tests. Recom
 - Inline SVG accessibility behavior and external-link rel behavior.
 - `renderPage('home')` and `renderPage('projects')` return complete deterministic markup containing the required landmarks/content.
 - Server markup and the corresponding client entry hydrate with zero recoverable hydration errors or DOM-replacement warnings.
+- Certification build/browser tests require all 11 static cards, the exact closed native disclosure label, pointer/Enter/Space operation, focus and target size, responsive wrapping, no-JavaScript operation, no hydration signal, and no private/generated credential artifact.
 
 ### End-to-end and manual tests
 
@@ -1007,6 +1014,7 @@ Every deletion/removal above is a future reviewed migration action, not authoriz
 | 5. Real Projects page | `/projects/` entry, published project articles, progressively enhanced filters, deep anchors | Direct load/refresh works locally; static HTML contains every published article; no-JavaScript view shows all; query filter degrades safely; no hash routing/modal |
 | 6. Approved optimized assets | Local image variants, intrinsic dimensions, alt text, social images, favicons | Image/private-data review passes; budgets pass; no GLB/CV/recovered certificate imagery |
 | 7. Metadata and crawlability | Per-page titles/descriptions/canonicals/OG, minimal JSON-LD, robots, sitemap, 404, pre-rendered semantic bodies | HTML/JSON-LD/XML/static-body validation passes; empty mount test fails as designed; only canonical domain; 404 has no redirect |
+| 7.5. Certifications expansion | Eleven verified text-only certifications; three featured and eight remaining in a native disclosure; normalized contracts/selectors and static/privacy gates | Exact 11-record partition passes; all records exist in prerendered HTML; disclosure works with pointer, keyboard, and no JavaScript; no credential image, identifier, URL placeholder, or hydration island |
 | 8. Quality suite | Lint/a11y rules, unit/component/server-render/hydration tests, Playwright enabled/disabled-JS route/responsive/axe checks, dist and budget scripts | All checks green; no hydration warning; no-JavaScript core-content/navigation pass; manual keyboard and one screen-reader review recorded |
 | 9. Actions deployment design | `.github/workflows/pages.yml`, ordered prerender build, static-body artifact gate, Pages path/permissions/concurrency/environment; Dependabot policy | PR run verifies without deploy; empty mount blocks artifact upload; reviewed main artifact contains only complete pre-rendered `dist`; source branch contains no generated output |
 | 10. Legacy removal and dependency pruning | Remove obsolete legacy source/assets/build tracking/dependencies in redesign branch; fresh lockfile | No forbidden package/import/path; clean `npm ci`; audits reviewed; build/test/budgets remain green |
@@ -1028,7 +1036,8 @@ Milestones should be separate reviewable commits or pull-request checkpoints. Do
 - [ ] VroomVroom appears as AI Systems Engineer internship from June through August 2025, not as a personal project.
 - [ ] No employer code is implied public.
 - [ ] LiveCoach and System Dynamics appear only after their respective evidence/evaluation gates.
-- [ ] Certifications contain the exact three locked titles/order and stable links only.
+- [ ] Certifications contain exactly three featured records in locked order plus eight deterministically ordered remaining records: 11 unique published records with no duplication.
+- [ ] Azure AI Apps and Agents renders "Expires July 2027"; Azure Data Scientist renders "Expired July 2026"; records without expiry make no validity claim.
 - [ ] Contact provides Email, LinkedIn, and GitHub only.
 
 ### Architecture and dependencies
@@ -1050,6 +1059,7 @@ Milestones should be separate reviewable commits or pull-request checkpoints. Do
 - [ ] WCAG 2.2 AA acceptance criteria in section 10 pass.
 - [ ] Keyboard, focus, menu, filters, anchors, reduced motion, contrast, alt text, zoom/reflow, and target sizes are verified.
 - [ ] With JavaScript disabled, core content/links remain readable, all projects remain visible, and mobile navigation remains accessible.
+- [ ] The native certification disclosure opens/closes by pointer, Enter, and Space with visible focus and a 44 px target, including without JavaScript; its summary contains no nested control or scripted expanded state.
 - [ ] 320–1920 px matrix passes with no unintended horizontal scroll or clipped content.
 - [ ] Automated axe has no serious/critical findings; manual screen-reader evidence exists.
 
@@ -1067,7 +1077,7 @@ Milestones should be separate reviewable commits or pull-request checkpoints. Do
 
 ### Security, privacy, and quality
 
-- [ ] No signed URLs, tokens, service identifiers, telephone, gender, nationality, CV, private certificate images, EXIF location, or employer/client private material exists in source, Git diff, logs, or artifact.
+- [ ] No signed URLs, tokens, service identifiers, telephone, gender, nationality, CV, certificate/issuer images, credential IDs, QR codes, private identifiers, EXIF location, or employer/client private material exists in source, Git diff, logs, or artifact.
 - [ ] Links pass protocol/stability checks and missing artifacts do not render placeholder buttons.
 - [ ] `npm ci`, lint, validation, tests, build, dist verification, budgets, and both audit modes complete and are reviewed.
 - [ ] Source maps are absent; package lock is committed; environment/private paths are ignored.
@@ -1089,6 +1099,7 @@ The redesign is done only when all of the following are true:
 10. `https://ahmedazizbenaissa.me/` is the single HTTPS canonical origin; `/projects/`, sitemap, social images, and 404 behavior work live.
 11. No raw recovery data, unapproved CV/certificate material, signed/private values, employer code, generated build output, or unrelated user-owned working-tree change is included.
 12. The owner has reviewed the final content, links, screenshots, privacy surface, Git diff, workflow result, and live site.
+13. All 11 owner-approved certifications exist in prerendered Home HTML; the exact three/eight native-disclosure presentation works without JavaScript, approved expiry wording is accurate, and no private credential artifact or placeholder link exists.
 
 Deployment is a separate owner-approved action after these criteria pass; completing implementation does not itself authorize deployment.
 

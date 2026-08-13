@@ -5,8 +5,15 @@ import { dirname, extname, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { profile } from '../src/data/profile.js';
+import { certifications } from '../src/data/certifications.js';
 import { projects } from '../src/data/projects.js';
-import { selectFeaturedProjects, selectPublishedProjects } from '../src/data/selectors.js';
+import {
+  selectFeaturedCertifications,
+  selectFeaturedProjects,
+  selectPublishedCertifications,
+  selectPublishedProjects,
+  selectRemainingCertifications,
+} from '../src/data/selectors.js';
 import { ALL_PROJECTS_CATEGORY, getAvailableProjectCategories } from '../src/utils/projectFilters.js';
 import { getPageJsonLd, getPageMetadata } from './metadata/manifest.mjs';
 import { HOME_SECTION_ORDER } from './verify-dist.mjs';
@@ -32,6 +39,112 @@ const contentTypes = new Map([
 function delay(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 }
+
+export function rectanglesIntersect(first, second, tolerance = 0.75) {
+  if (!first || !second) return false;
+  const horizontalOverlap =
+    Math.min(first.right, second.right) - Math.max(first.left, second.left);
+  const verticalOverlap =
+    Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top);
+  return horizontalOverlap > tolerance && verticalOverlap > tolerance;
+}
+
+function measureCertificationOverlapState() {
+  const tolerance = 0.75;
+  const toPlainRect = (rect) => ({
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+  });
+  const isVisible = (element) => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      rect.width > tolerance &&
+      rect.height > tolerance
+    );
+  };
+  const escapesBoundary = (rect, boundary) =>
+    Boolean(boundary) &&
+    (rect.left < boundary.left - tolerance ||
+      rect.right > boundary.right + tolerance ||
+      rect.top < boundary.top - tolerance ||
+      rect.bottom > boundary.bottom + tolerance);
+
+  const details = document.querySelector('[data-certification-disclosure]');
+  const remainingList = details?.querySelector('[data-certification-list="remaining"]');
+  const certificationSection = details?.closest('[data-home-section="certifications"]');
+  const educationSection = document.querySelector('[data-home-section="education"]');
+  const footer = document.querySelector('.site-footer');
+  const remainingCards = [
+    ...(remainingList?.querySelectorAll('[data-certification-id]') ?? []),
+  ];
+  const visibleCards = remainingCards.filter(isVisible);
+  const remainingListRect = isVisible(remainingList)
+    ? toPlainRect(remainingList.getBoundingClientRect())
+    : null;
+  const disclosureRect = details ? toPlainRect(details.getBoundingClientRect()) : null;
+  const sectionRect = certificationSection
+    ? toPlainRect(certificationSection.getBoundingClientRect())
+    : null;
+  const educationRect = educationSection
+    ? toPlainRect(educationSection.getBoundingClientRect())
+    : null;
+  const footerRect = footer ? toPlainRect(footer.getBoundingClientRect()) : null;
+  const visibleCardRects = visibleCards.map((card) => ({
+    id: card.dataset.certificationId,
+    rect: toPlainRect(card.getBoundingClientRect()),
+  }));
+
+  const remainingListIntersectsEducation = rectanglesIntersect(
+    remainingListRect,
+    educationRect,
+    tolerance,
+  );
+  const remainingListIntersectsFooter = rectanglesIntersect(
+    remainingListRect,
+    footerRect,
+    tolerance,
+  );
+  const visibleCardIntersectsEducation = visibleCardRects.some(({ rect }) =>
+    rectanglesIntersect(rect, educationRect, tolerance),
+  );
+  const visibleCardIntersectsFooter = visibleCardRects.some(({ rect }) =>
+    rectanglesIntersect(rect, footerRect, tolerance),
+  );
+  const visibleBoundaryOverlap = visibleCardRects.some(({ rect }) => {
+    const escapes = escapesBoundary(rect, disclosureRect) || escapesBoundary(rect, sectionRect);
+    const overlapsFollowingContent =
+      rectanglesIntersect(rect, educationRect, tolerance) ||
+      rectanglesIntersect(rect, footerRect, tolerance);
+    return escapes && overlapsFollowingContent;
+  });
+
+  return {
+    remainingListVisible: isVisible(remainingList),
+    remainingListRect,
+    visibleRemainingIds: visibleCardRects.map(({ id }) => id),
+    visibleCardRects,
+    educationRect,
+    footerRect,
+    remainingListIntersectsEducation,
+    remainingListIntersectsFooter,
+    visibleCardIntersectsEducation,
+    visibleCardIntersectsFooter,
+    visibleBoundaryOverlap,
+  };
+}
+
+const certificationOverlapRuntimeSource = [
+  `const rectanglesIntersect = ${rectanglesIntersect.toString()};`,
+  `const measureCertificationOverlapState = ${measureCertificationOverlapState.toString()};`,
+].join('\n');
 
 async function preparePreviewDirectory() {
   const requestedDirectory =
@@ -263,6 +376,7 @@ async function verifyPage(
   {
     path,
     expectedHeading,
+    expectedFeaturedCertificationIds = [],
     expectedFeaturedProjectIds = [],
     expectedHomeContacts = [],
     expectedHomeSections = [],
@@ -271,6 +385,8 @@ async function verifyPage(
     expectedProjectArtifactHrefs = [],
     expectedProjectControlsHidden = null,
     expectedProjectFilters = [],
+    expectedPublishedCertificationIds = [],
+    expectedRemainingCertificationIds = [],
     expectedMetadata,
     expectedJsonLd,
     javaScriptEnabled,
@@ -370,6 +486,31 @@ async function verifyPage(
     );
   }
 
+  const initialCertificationState = await evaluate(
+    connection,
+    sessionId,
+    `(() => {
+      const details = document.querySelector('[data-certification-disclosure]');
+      const isVisible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+      const featured = [...document.querySelectorAll('[data-certification-list="featured"] [data-certification-id]')];
+      const remaining = [...document.querySelectorAll('[data-certification-list="remaining"] [data-certification-id]')];
+      return {
+        applicable: Boolean(details),
+        open: details?.open ?? null,
+        order: [...document.querySelectorAll('[data-certification-id]')]
+          .map((article) => article.dataset.certificationId),
+        featuredVisibleCount: featured.filter(isVisible).length,
+        remainingHiddenCount: remaining.filter((article) => !isVisible(article)).length
+      };
+    })()`,
+  );
+
+  const networkRequestCountBeforeInteraction = networkRequests.length;
   const interaction = await evaluate(
     connection,
     sessionId,
@@ -385,7 +526,9 @@ async function verifyPage(
         escapeClosed: null,
         escapeReturnedFocus: null,
         linkActivationClosed: null,
-        linkActivationReturnedFocus: null
+        linkActivationReturnedFocus: null,
+        certificationPointerOpened: null,
+        certificationPointerClosed: null
       };
 
       if (summaryVisible && details && firstLink) {
@@ -413,9 +556,196 @@ async function verifyPage(
         }
       }
 
+      const certificationDetails = document.querySelector('[data-certification-disclosure]');
+      const certificationSummary = certificationDetails?.querySelector(':scope > summary');
+      if (certificationDetails && certificationSummary) {
+        certificationDetails.open = false;
+        certificationSummary.click();
+        result.certificationPointerOpened = certificationDetails.open;
+        certificationSummary.click();
+        result.certificationPointerClosed = !certificationDetails.open;
+      }
+
       return result;
     })()`,
   );
+  await delay(25);
+
+  const certificationKeyboard = {
+    applicable: expectedPublishedCertificationIds.length > 0,
+    enterOpened: null,
+    enterClosed: null,
+    spaceOpened: null,
+    spaceClosed: null,
+    tabReached: null,
+    focusOutlineWidth: null,
+    focusOutlineStyle: null,
+    focusOutlineOffset: null,
+    focusRetained: null,
+  };
+  if (certificationKeyboard.applicable) {
+    const pressKey = async (key, code, virtualKeyCode) => {
+      await connection.send(
+        'Input.dispatchKeyEvent',
+        {
+          type: 'keyDown',
+          key,
+          code,
+          windowsVirtualKeyCode: virtualKeyCode,
+          nativeVirtualKeyCode: virtualKeyCode,
+          ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}),
+          ...(key === ' ' ? { text: ' ', unmodifiedText: ' ' } : {}),
+        },
+        sessionId,
+      );
+      await connection.send(
+        'Input.dispatchKeyEvent',
+        { type: 'keyUp', key, code, windowsVirtualKeyCode: virtualKeyCode, nativeVirtualKeyCode: virtualKeyCode },
+        sessionId,
+      );
+      await delay(25);
+      return evaluate(
+        connection,
+        sessionId,
+        `(() => {
+          const details = document.querySelector('[data-certification-disclosure]');
+          const summary = details?.querySelector(':scope > summary');
+          return { open: Boolean(details?.open), focused: document.activeElement === summary };
+        })()`,
+      );
+    };
+    await evaluate(
+      connection,
+      sessionId,
+      `(() => {
+        const details = document.querySelector('[data-certification-disclosure]');
+        const summary = details?.querySelector(':scope > summary');
+        if (!details || !summary) return false;
+        details.open = false;
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        return true;
+      })()`,
+    );
+    for (let index = 0; index < 80; index += 1) {
+      const tabState = await pressKey('Tab', 'Tab', 9);
+      if (tabState.focused) {
+        certificationKeyboard.tabReached = true;
+        break;
+      }
+    }
+    certificationKeyboard.tabReached ??= false;
+    if (certificationKeyboard.tabReached) {
+      const tabFocus = await evaluate(
+        connection,
+        sessionId,
+        `(() => {
+          const summary = document.querySelector('[data-certification-disclosure] > summary');
+          const style = summary ? getComputedStyle(summary) : null;
+          return {
+            width: style?.outlineWidth ?? null,
+            style: style?.outlineStyle ?? null,
+            offset: style?.outlineOffset ?? null
+          };
+        })()`,
+      );
+      certificationKeyboard.focusOutlineWidth = tabFocus.width;
+      certificationKeyboard.focusOutlineStyle = tabFocus.style;
+      certificationKeyboard.focusOutlineOffset = tabFocus.offset;
+    }
+    const enterOpen = await pressKey('Enter', 'Enter', 13);
+    const enterClose = await pressKey('Enter', 'Enter', 13);
+    const spaceOpen = await pressKey(' ', 'Space', 32);
+    const spaceClose = await pressKey(' ', 'Space', 32);
+    certificationKeyboard.enterOpened = enterOpen.open;
+    certificationKeyboard.enterClosed = !enterClose.open;
+    certificationKeyboard.spaceOpened = spaceOpen.open;
+    certificationKeyboard.spaceClosed = !spaceClose.open;
+    certificationKeyboard.focusRetained = [enterOpen, enterClose, spaceOpen, spaceClose].every(
+      ({ focused }) => focused,
+    );
+  }
+
+  const certificationLayout = await evaluate(
+    connection,
+    sessionId,
+    `(() => {
+      ${certificationOverlapRuntimeSource}
+      const details = document.querySelector('[data-certification-disclosure]');
+      const summary = details?.querySelector(':scope > summary');
+      if (!details || !summary) return { applicable: false };
+
+      const isVisible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+      const featured = [...document.querySelectorAll('[data-certification-list="featured"] [data-certification-id]')];
+      const remaining = [...document.querySelectorAll('[data-certification-list="remaining"] [data-certification-id]')];
+      const expectedLongTitleIds = new Set([
+        'microsoft-azure-ai-apps-agents-developer-associate',
+        'google-connect-protect-networks-network-security',
+        'nvidia-building-transformer-based-nlp-applications'
+      ]);
+
+      details.open = false;
+      summary.click();
+      details.getBoundingClientRect();
+
+      const overlapMeasurement = measureCertificationOverlapState();
+      const titleMeasurements = [...document.querySelectorAll('[data-certification-id]')]
+        .filter((article) => expectedLongTitleIds.has(article.dataset.certificationId))
+        .map((article) => {
+          const title = article.querySelector('h3');
+          const titleRect = title.getBoundingClientRect();
+          const cardRect = article.getBoundingClientRect();
+          const style = getComputedStyle(title);
+          return {
+            id: article.dataset.certificationId,
+            clientWidth: title.clientWidth,
+            scrollWidth: title.scrollWidth,
+            fitsCardHorizontally:
+              titleRect.left >= cardRect.left - 1 && titleRect.right <= cardRect.right + 1,
+            overflowX: style.overflowX,
+            overflowY: style.overflowY,
+            overflowWrap: style.overflowWrap,
+            whiteSpace: style.whiteSpace,
+            webkitLineClamp: style.webkitLineClamp
+          };
+        });
+      const openState = {
+        open: details.open,
+        order: [...document.querySelectorAll('[data-certification-id]')]
+          .map((article) => article.dataset.certificationId),
+        featuredVisibleCount: featured.filter(isVisible).length,
+        remainingVisibleCount: remaining.filter(isVisible).length,
+        horizontalOverflow:
+          Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) >
+          document.documentElement.clientWidth + 1,
+        overlapsNextSection:
+          overlapMeasurement.remainingListIntersectsEducation ||
+          overlapMeasurement.visibleCardIntersectsEducation,
+        overlapsFooter:
+          overlapMeasurement.remainingListIntersectsFooter ||
+          overlapMeasurement.visibleCardIntersectsFooter,
+        overlapMeasurement,
+        titleMeasurements
+      };
+
+      summary.click();
+      details.getBoundingClientRect();
+      return {
+        applicable: true,
+        openState,
+        closed: !details.open,
+        remainingHiddenCount: remaining.filter((article) => !isVisible(article)).length,
+        focusRetained: document.activeElement === summary
+      };
+    })()`,
+  );
+  await delay(25);
+  const certificationInteractionRequestDelta =
+    networkRequests.length - networkRequestCountBeforeInteraction;
 
   const snapshot = await evaluate(
     connection,
@@ -425,6 +755,10 @@ async function verifyPage(
       const primaryNav = document.querySelector('nav[aria-label="Primary"]');
       const summary = document.querySelector('.site-nav__summary');
       const summaryRect = summary?.getBoundingClientRect();
+      const certificationDisclosure = document.querySelector('[data-certification-disclosure]');
+      const certificationSummary = certificationDisclosure?.querySelector(':scope > summary');
+      const certificationSummaryRect = certificationSummary?.getBoundingClientRect();
+      const certificationFocusStyle = certificationSummary ? getComputedStyle(certificationSummary) : null;
       const contactTypes = [...document.querySelectorAll('[data-contact-kind]')]
         .map((link) => link.dataset.contactKind);
       const homeContacts = [...document.querySelectorAll('[data-home-contact-kind]')]
@@ -445,7 +779,7 @@ async function verifyPage(
       ];
       const practicalPointerTargets = [
         ...document.querySelectorAll(
-          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .home-contact-link, .footer-nav a, .footer-contact-link, [data-project-filter], [data-project-empty-state] button',
+          '.site-identity, .site-nav__summary, .site-nav__link, .link-button, .home-contact-link, .footer-nav a, .footer-contact-link, .certification-disclosure__summary, [data-project-filter], [data-project-empty-state] button',
         ),
       ].filter(isVisible);
       const essentialText = [
@@ -478,6 +812,31 @@ async function verifyPage(
           .map((section) => section.dataset.homeSection),
         featuredProjectIds: [...document.querySelectorAll('[data-featured-project-id]')]
           .map((article) => article.dataset.featuredProjectId),
+        certificationIds: [...document.querySelectorAll('[data-certification-id]')]
+          .map((article) => article.dataset.certificationId),
+        featuredCertificationIds: [...document.querySelectorAll('[data-certification-list="featured"] [data-certification-id]')]
+          .map((article) => article.dataset.certificationId),
+        remainingCertificationIds: [...document.querySelectorAll('[data-certification-list="remaining"] [data-certification-id]')]
+          .map((article) => article.dataset.certificationId),
+        certificationDisclosureCount: document.querySelectorAll('[data-certification-disclosure]').length,
+        certificationSummaryCount: document.querySelectorAll('[data-certification-disclosure] > summary').length,
+        certificationSummaryText: certificationSummary?.textContent.trim() ?? null,
+        certificationDisclosureOpen: certificationDisclosure?.open ?? null,
+        certificationSummaryTargetIsMinimum:
+          !isVisible(certificationSummary) ||
+          (certificationSummaryRect.width >= 44 && certificationSummaryRect.height >= 44),
+        certificationFocusOutlineWidth: certificationFocusStyle?.outlineWidth ?? null,
+        certificationFocusOutlineStyle: certificationFocusStyle?.outlineStyle ?? null,
+        certificationFocusOutlineOffset: certificationFocusStyle?.outlineOffset ?? null,
+        certificationInteractiveControlCount: document.querySelectorAll(
+          '[data-certification-id] a, [data-certification-id] button, [data-certification-id] input, [data-certification-id] select, [data-certification-id] textarea',
+        ).length,
+        certificationImageCount: document.querySelectorAll('[data-certification-id] img').length,
+        certificationHeadingCount: document.querySelectorAll('[data-certification-id] h3').length,
+        featuredCertificationsVisible: [...document.querySelectorAll('[data-certification-list="featured"] [data-certification-id]')]
+          .every(isVisible),
+        remainingCertificationsHidden: [...document.querySelectorAll('[data-certification-list="remaining"] [data-certification-id]')]
+          .every((article) => !isVisible(article)),
         projectsPlaceholderCount: document.querySelectorAll('[data-projects-placeholder]').length,
         projectArticleIds: [...document.querySelectorAll('[data-project-article-id]')]
           .map((article) => article.dataset.projectArticleId),
@@ -609,6 +968,127 @@ async function verifyPage(
   if (JSON.stringify(snapshot.homeContacts) !== JSON.stringify(expectedHomeContacts)) {
     throw new Error(`${path} at ${width}px has an unexpected homepage contact contract.`);
   }
+  if (expectedPublishedCertificationIds.length > 0) {
+    const titleMeasurements = certificationLayout.openState?.titleMeasurements ?? [];
+    const titlesWrapWithoutClipping =
+      titleMeasurements.length === 3 &&
+      titleMeasurements.every(
+        (measurement) =>
+          measurement.fitsCardHorizontally &&
+          measurement.scrollWidth <= measurement.clientWidth + 3 &&
+          measurement.overflowX === 'visible' &&
+          measurement.overflowY === 'visible' &&
+          measurement.overflowWrap !== 'normal' &&
+          !['nowrap', 'pre'].includes(measurement.whiteSpace) &&
+          ['none', ''].includes(measurement.webkitLineClamp),
+      );
+    const certificationFailures = [
+      [!initialCertificationState.applicable, 'initial-disclosure-missing'],
+      [initialCertificationState.open !== false, 'initial-closed-state'],
+      [
+        JSON.stringify(initialCertificationState.order) !==
+          JSON.stringify(expectedPublishedCertificationIds),
+        'initial-published-order',
+      ],
+      [initialCertificationState.featuredVisibleCount !== 3, 'initial-featured-visibility'],
+      [initialCertificationState.remainingHiddenCount !== 8, 'initial-remaining-visibility'],
+      [
+        JSON.stringify(snapshot.certificationIds) !==
+          JSON.stringify(expectedPublishedCertificationIds),
+        'published-order',
+      ],
+      [
+        JSON.stringify(snapshot.featuredCertificationIds) !==
+          JSON.stringify(expectedFeaturedCertificationIds),
+        'featured-order',
+      ],
+      [
+        JSON.stringify(snapshot.remainingCertificationIds) !==
+          JSON.stringify(expectedRemainingCertificationIds),
+        'remaining-order',
+      ],
+      [snapshot.certificationDisclosureCount !== 1, 'details-count'],
+      [snapshot.certificationSummaryCount !== 1, 'summary-count'],
+      [snapshot.certificationSummaryText !== 'View all certifications (8 more)', 'summary-text'],
+      [snapshot.certificationDisclosureOpen !== false, 'initial-closed-state'],
+      [!snapshot.certificationSummaryTargetIsMinimum, 'summary-target'],
+      [certificationKeyboard.focusOutlineWidth !== '3px', 'focus-width'],
+      [certificationKeyboard.focusOutlineStyle !== 'solid', 'focus-style'],
+      [certificationKeyboard.focusOutlineOffset !== '3px', 'focus-offset'],
+      [snapshot.certificationInteractiveControlCount !== 0, 'credential-controls'],
+      [snapshot.certificationImageCount !== 0, 'credential-images'],
+      [snapshot.certificationHeadingCount !== expectedPublishedCertificationIds.length, 'card-headings'],
+      [!snapshot.featuredCertificationsVisible, 'featured-visibility'],
+      [!snapshot.remainingCertificationsHidden, 'remaining-initial-visibility'],
+      [!certificationLayout.applicable, 'open-layout-missing'],
+      [certificationLayout.openState?.open !== true, 'open-layout-state'],
+      [certificationLayout.openState?.featuredVisibleCount !== 3, 'open-featured-visibility'],
+      [certificationLayout.openState?.remainingVisibleCount !== 8, 'open-remaining-visibility'],
+      [
+        !certificationLayout.openState?.overlapMeasurement?.remainingListVisible,
+        'open-remaining-list-visibility',
+      ],
+      [
+        JSON.stringify(certificationLayout.openState?.overlapMeasurement?.visibleRemainingIds) !==
+          JSON.stringify(expectedRemainingCertificationIds),
+        'open-visible-card-order',
+      ],
+      [
+        certificationLayout.openState?.overlapMeasurement?.visibleCardRects?.length !== 8,
+        'open-visible-card-rectangles',
+      ],
+      [
+        JSON.stringify(certificationLayout.openState?.order) !==
+          JSON.stringify(expectedPublishedCertificationIds),
+        'open-published-order',
+      ],
+      [certificationLayout.openState?.horizontalOverflow !== false, 'open-horizontal-overflow'],
+      [
+        certificationLayout.openState?.overlapMeasurement?.remainingListIntersectsEducation !==
+          false,
+        'open-list-education-overlap',
+      ],
+      [
+        certificationLayout.openState?.overlapMeasurement?.visibleCardIntersectsEducation !==
+          false,
+        'open-card-education-overlap',
+      ],
+      [
+        certificationLayout.openState?.overlapMeasurement?.remainingListIntersectsFooter !== false,
+        'open-list-footer-overlap',
+      ],
+      [
+        certificationLayout.openState?.overlapMeasurement?.visibleCardIntersectsFooter !== false,
+        'open-card-footer-overlap',
+      ],
+      [
+        certificationLayout.openState?.overlapMeasurement?.visibleBoundaryOverlap !== false,
+        'open-card-boundary-overlap',
+      ],
+      [certificationLayout.openState?.overlapsNextSection !== false, 'open-next-section-overlap'],
+      [certificationLayout.openState?.overlapsFooter !== false, 'open-footer-overlap'],
+      [!titlesWrapWithoutClipping, 'open-title-wrapping'],
+      [!certificationLayout.closed, 'layout-close-state'],
+      [certificationLayout.remainingHiddenCount !== 8, 'layout-close-visibility'],
+      [!certificationLayout.focusRetained, 'layout-close-focus'],
+      [certificationInteractionRequestDelta !== 0, 'interaction-network-request'],
+      [!interaction.certificationPointerOpened, 'pointer-open'],
+      [!interaction.certificationPointerClosed, 'pointer-close'],
+      [!certificationKeyboard.enterOpened, 'enter-open'],
+      [!certificationKeyboard.enterClosed, 'enter-close'],
+      [!certificationKeyboard.spaceOpened, 'space-open'],
+      [!certificationKeyboard.spaceClosed, 'space-close'],
+      [!certificationKeyboard.tabReached, 'tab-reach'],
+      [!certificationKeyboard.focusRetained, 'keyboard-focus'],
+    ]
+      .filter(([failed]) => failed)
+      .map(([, rule]) => rule);
+    if (certificationFailures.length > 0) {
+      throw new Error(
+        `${path} at ${width}px failed certification disclosure rules: ${certificationFailures.join(', ')} (focus: ${snapshot.certificationFocusOutlineWidth}/${snapshot.certificationFocusOutlineStyle}/${snapshot.certificationFocusOutlineOffset}; keyboard: ${JSON.stringify(certificationKeyboard)}).`,
+      );
+    }
+  }
   if (snapshot.projectsPlaceholderCount !== 0) {
     throw new Error(`${path} at ${width}px retains the obsolete Projects placeholder.`);
   }
@@ -698,7 +1178,171 @@ async function verifyPage(
   ) {
     throw new Error(`${path} at ${width}px made an external or failed network request.`);
   }
-  return { ...snapshot, interaction, errors, networkRequestCount: networkRequests.length, screenshotFile };
+  return {
+    ...snapshot,
+    interaction,
+    certificationKeyboard,
+    certificationLayout,
+    certificationInteractionRequestDelta,
+    errors,
+    networkRequestCount: networkRequests.length,
+    screenshotFile,
+  };
+}
+
+async function verifyCertificationOverlapRegression(connection, origin) {
+  const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await connection.send('Target.attachToTarget', {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await connection.send('Runtime.enable', {}, sessionId);
+    await connection.send('Page.enable', {}, sessionId);
+    await connection.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 320, height: 900, deviceScaleFactor: 1, mobile: true },
+      sessionId,
+    );
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.navigate', { url: `${origin}/` }, sessionId);
+    await loaded;
+
+    const result = await evaluate(
+      connection,
+      sessionId,
+      `(() => {
+        ${certificationOverlapRuntimeSource}
+        const details = document.querySelector('[data-certification-disclosure]');
+        const remainingList = details?.querySelector('[data-certification-list="remaining"]');
+        const firstRemainingCard = remainingList?.querySelector('[data-certification-id]');
+        const education = document.querySelector('[data-home-section="education"]');
+        const footer = document.querySelector('.site-footer');
+        if (!details || !remainingList || !firstRemainingCard || !education || !footer) {
+          return { applicable: false };
+        }
+
+        const originalListTransform = remainingList.style.transform;
+        const originalCardTransform = firstRemainingCard.style.transform;
+        const restoreTransform = (element, value) => {
+          if (value) element.style.transform = value;
+          else element.style.removeProperty('transform');
+        };
+        const translateInto = (element, target) => {
+          element.style.removeProperty('transform');
+          const sourceRect = element.getBoundingClientRect();
+          const targetRect = target.getBoundingClientRect();
+          const inset = Math.max(
+            2,
+            Math.min(8, targetRect.width / 4, targetRect.height / 4),
+          );
+          const translateX = targetRect.left + inset - sourceRect.left;
+          const translateY = targetRect.top + inset - sourceRect.top;
+          element.style.transform =
+            'translate(' + translateX + 'px, ' + translateY + 'px)';
+          element.getBoundingClientRect();
+          return measureCertificationOverlapState();
+        };
+
+        details.open = true;
+        details.getBoundingClientRect();
+        const clean = measureCertificationOverlapState();
+        let listEducation;
+        let cardEducation;
+        let listFooter;
+        let cardFooter;
+        try {
+          listEducation = translateInto(remainingList, education);
+          restoreTransform(remainingList, originalListTransform);
+          remainingList.getBoundingClientRect();
+
+          cardEducation = translateInto(firstRemainingCard, education);
+          restoreTransform(firstRemainingCard, originalCardTransform);
+          firstRemainingCard.getBoundingClientRect();
+
+          listFooter = translateInto(remainingList, footer);
+          restoreTransform(remainingList, originalListTransform);
+          remainingList.getBoundingClientRect();
+
+          cardFooter = translateInto(firstRemainingCard, footer);
+        } finally {
+          restoreTransform(remainingList, originalListTransform);
+          restoreTransform(firstRemainingCard, originalCardTransform);
+          remainingList.getBoundingClientRect();
+        }
+        const restored = measureCertificationOverlapState();
+        details.open = false;
+
+        return {
+          applicable: true,
+          clean,
+          listEducation,
+          cardEducation,
+          listFooter,
+          cardFooter,
+          restored,
+          cleanupRestored:
+            remainingList.style.transform === originalListTransform &&
+            firstRemainingCard.style.transform === originalCardTransform &&
+            !details.open
+        };
+      })()`,
+    );
+
+    const hasEducationOverlap = (measurement) =>
+      Boolean(
+        measurement &&
+          (measurement.remainingListIntersectsEducation ||
+            measurement.visibleCardIntersectsEducation),
+      );
+    const hasFooterOverlap = (measurement) =>
+      Boolean(
+        measurement &&
+          (measurement.remainingListIntersectsFooter ||
+            measurement.visibleCardIntersectsFooter),
+      );
+    const hasAnyOverlap = (measurement) =>
+      Boolean(
+        measurement &&
+          (hasEducationOverlap(measurement) ||
+            hasFooterOverlap(measurement) ||
+            measurement.visibleBoundaryOverlap),
+      );
+    const failures = [
+      [!result.applicable, 'fixture-missing'],
+      [result.clean?.visibleRemainingIds?.length !== 8, 'clean-visible-count'],
+      [hasAnyOverlap(result.clean), 'clean-overlap'],
+      [!result.listEducation?.remainingListIntersectsEducation, 'list-education-undetected'],
+      [!result.listEducation?.visibleCardIntersectsEducation, 'list-card-education-undetected'],
+      [!result.cardEducation?.visibleCardIntersectsEducation, 'card-education-undetected'],
+      [!result.cardEducation?.visibleBoundaryOverlap, 'card-education-boundary-undetected'],
+      [!result.listFooter?.remainingListIntersectsFooter, 'list-footer-undetected'],
+      [!result.listFooter?.visibleCardIntersectsFooter, 'list-card-footer-undetected'],
+      [!result.cardFooter?.visibleCardIntersectsFooter, 'card-footer-undetected'],
+      [!result.cardFooter?.visibleBoundaryOverlap, 'card-footer-boundary-undetected'],
+      [hasAnyOverlap(result.restored), 'restored-overlap'],
+      [!result.cleanupRestored, 'cleanup-not-restored'],
+    ]
+      .filter(([failed]) => failed)
+      .map(([, rule]) => rule);
+    if (failures.length > 0) {
+      throw new Error(
+        `Certification overlap detector negative regression failed: ${failures.join(', ')}.`,
+      );
+    }
+
+    return {
+      status: 'detected-and-restored',
+      cleanOverlap: false,
+      listEducationDetected: true,
+      cardEducationDetected: true,
+      listFooterDetected: true,
+      cardFooterDetected: true,
+      cleanupRestored: true,
+    };
+  } finally {
+    await connection.send('Target.closeTarget', { targetId });
+  }
 }
 
 async function verifyProjectsBehavior(connection, origin) {
@@ -1094,6 +1738,15 @@ export async function verifyBrowser() {
     const version = await waitForDevTools(resolve(profileDirectory, 'DevToolsActivePort'));
     connection = new DevToolsConnection(version.webSocketDebuggerUrl);
     const publishedProjectIds = selectPublishedProjects(projects).map((project) => project.id);
+    const featuredCertificationIds = selectFeaturedCertifications(certifications).map(
+      (record) => record.id,
+    );
+    const remainingCertificationIds = selectRemainingCertifications(certifications).map(
+      (record) => record.id,
+    );
+    const publishedCertificationIds = selectPublishedCertifications(certifications).map(
+      (record) => record.id,
+    );
     const projectFilters = [ALL_PROJECTS_CATEGORY, ...getAvailableProjectCategories(projects)];
     const contracts = [
       {
@@ -1107,6 +1760,9 @@ export async function verifyBrowser() {
         expectedHeading: 'Ahmed Aziz Ben Aissa',
         expectedHomeSections: HOME_SECTION_ORDER,
         expectedFeaturedProjectIds: selectFeaturedProjects(projects).map((project) => project.id),
+        expectedFeaturedCertificationIds: featuredCertificationIds,
+        expectedRemainingCertificationIds: remainingCertificationIds,
+        expectedPublishedCertificationIds: publishedCertificationIds,
         expectedHomeContacts: ['email', 'linkedin', 'github'].map((kind) => ({
           kind,
           href: profile.links[kind].href,
@@ -1178,6 +1834,7 @@ export async function verifyBrowser() {
           width,
           status: result.hydrationStatus,
           horizontalOverflow: result.horizontalOverflow,
+          certificationLayout: result.certificationLayout,
         });
         if (screenshotFile) screenshots.push(screenshotFile);
 
@@ -1199,6 +1856,7 @@ export async function verifyBrowser() {
           width,
           status: staticResult.hydrationStatus,
           horizontalOverflow: staticResult.horizontalOverflow,
+          certificationLayout: staticResult.certificationLayout,
         });
       }
 
@@ -1220,6 +1878,10 @@ export async function verifyBrowser() {
       reducedMotion.push({ path: contract.path, width: 320, status: 'reduced' });
     }
 
+    const certificationOverlapRegression = await verifyCertificationOverlapRegression(
+      connection,
+      staticServer.origin,
+    );
     const projectsBehavior = await verifyProjectsBehavior(connection, staticServer.origin);
     const notFound = [];
     for (const width of [320, 1440]) {
@@ -1254,6 +1916,7 @@ export async function verifyBrowser() {
       reducedMotion,
       mismatchDetected: true,
       projectsMismatchDetected: true,
+      certificationOverlapRegression,
       projectsBehavior,
       notFound,
       screenshots,

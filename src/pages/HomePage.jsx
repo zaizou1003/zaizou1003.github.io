@@ -21,6 +21,7 @@ import {
   selectPublishedEducation,
   selectPublishedExperience,
   selectPublishedSkillGroups,
+  selectRemainingCertifications,
   selectSelectedWorkProjects,
 } from '../data/selectors.js';
 import { skills } from '../data/skills.js';
@@ -39,7 +40,10 @@ export function HomePage() {
       <Experience experiences={selectPublishedExperience(experience)} />
       <SelectedWork projects={selectSelectedWorkProjects(projects)} />
       <Skills groups={selectPublishedSkillGroups(skills, projects, experience)} />
-      <Certifications certifications={selectFeaturedCertifications(certifications)} />
+      <Certifications
+        featuredCertifications={selectFeaturedCertifications(certifications)}
+        remainingCertifications={selectRemainingCertifications(certifications)}
+      />
       <Education education={selectPublishedEducation(education)} />
       <ContactLinks links={profile.links} />
     </SiteShell>

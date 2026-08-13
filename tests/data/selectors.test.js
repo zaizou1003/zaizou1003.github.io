@@ -2,15 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CERTIFICATION_COUNT,
   FLAGSHIP_PROJECTS,
   portfolioData,
   selectCapabilities,
   selectFeaturedCertifications,
   selectFeaturedProjects,
+  selectPublishedCertifications,
   selectPublishedEducation,
   selectPublishedExperience,
   selectPublishedProjects,
   selectPublishedSkillGroups,
+  selectRemainingCertifications,
   selectSelectedWorkProjects,
   selectSkillGroups,
   validatePortfolioData,
@@ -30,6 +33,41 @@ import {
   getProjectCategoryLabel,
   getProjectWorkModeLabel,
 } from '../../src/utils/projectPresentation.js';
+
+const FEATURED_CERTIFICATION_IDS = [
+  'microsoft-azure-ai-apps-agents-developer-associate',
+  'anthropic-introduction-to-model-context-protocol',
+  'hugging-face-ai-agent-course',
+];
+
+const REMAINING_CERTIFICATION_IDS = [
+  'microsoft-azure-data-scientist-associate',
+  'google-connect-protect-networks-network-security',
+  'google-play-it-safe-manage-security-risks',
+  'google-coursera-foundations-cybersecurity',
+  'hugging-face-ai-agents-fundamentals',
+  'nvidia-fundamentals-deep-learning',
+  'nvidia-applications-ai-predictive-maintenance',
+  'nvidia-building-transformer-based-nlp-applications',
+];
+
+const CERTIFICATION_SELECTORS = [
+  ['featured', selectFeaturedCertifications],
+  ['remaining', selectRemainingCertifications],
+  ['published', selectPublishedCertifications],
+];
+
+function assertEveryCertificationSelectorRejects(mutate, expectedError) {
+  for (const [name, selector] of CERTIFICATION_SELECTORS) {
+    const records = structuredClone(portfolioData.certifications);
+    mutate(records);
+    assert.throws(
+      () => selector(records),
+      expectedError,
+      `${name} selector accepted an invalid certification collection`,
+    );
+  }
+}
 
 test('selectors are deterministic and do not mutate their inputs', () => {
   const projects = structuredClone(portfolioData.projects).reverse();
@@ -59,8 +97,8 @@ test('selectors are deterministic and do not mutate their inputs', () => {
     [1, 2, 3, 4],
   );
   assert.deepEqual(
-    selectFeaturedCertifications(certifications).map((record) => record.featuredOrder),
-    [1, 2, 3],
+    selectFeaturedCertifications(certifications).map((record) => record.id),
+    FEATURED_CERTIFICATION_IDS,
   );
   assert.deepEqual(
     selectPublishedEducation(education).map((record) => record.endDate),
@@ -71,6 +109,104 @@ test('selectors are deterministic and do not mutate their inputs', () => {
     [projects, experience, skills, certifications, education].map((value) => JSON.stringify(value)),
     snapshots,
   );
+});
+
+test('certification selectors accept canonical, reversed and shuffled approved inputs deterministically', () => {
+  assert.equal(CERTIFICATION_COUNT, 11);
+  const canonical = structuredClone(portfolioData.certifications);
+  const reversed = structuredClone(portfolioData.certifications).reverse();
+  const shuffleOrder = [5, 0, 10, 3, 8, 1, 6, 9, 2, 7, 4];
+  const shuffled = shuffleOrder.map((index) => structuredClone(portfolioData.certifications[index]));
+
+  for (const records of [canonical, reversed, shuffled]) {
+    const snapshot = JSON.stringify(records);
+    const featured = selectFeaturedCertifications(records);
+    const remaining = selectRemainingCertifications(records);
+    const published = selectPublishedCertifications(records);
+
+    assert.notStrictEqual(featured, records);
+    assert.notStrictEqual(remaining, records);
+    assert.notStrictEqual(published, records);
+    assert.deepEqual(featured.map(({ id }) => id), FEATURED_CERTIFICATION_IDS);
+    assert.deepEqual(remaining.map(({ id }) => id), REMAINING_CERTIFICATION_IDS);
+    assert.deepEqual(
+      published.map(({ id }) => id),
+      [...FEATURED_CERTIFICATION_IDS, ...REMAINING_CERTIFICATION_IDS],
+    );
+    assert.equal(new Set(published.map(({ id }) => id)).size, CERTIFICATION_COUNT);
+    assert.equal(featured.some(({ id }) => remaining.some((record) => record.id === id)), false);
+    assert.deepEqual([...featured, ...remaining], published);
+    assert.equal(JSON.stringify(records), snapshot);
+  }
+});
+
+test('every public certification selector rejects malformed or unapproved collections', async (context) => {
+  const cases = [
+    ['unknown remainder ID', (records) => { records[10].id = 'unknown-approved-shape'; }, /owner-approved certification/i],
+    ['missing approved ID', (records) => { records.pop(); }, /exactly the 11 approved records/i],
+    ['duplicate ID', (records) => { records[10].id = records[9].id; }, /duplicate id/i],
+    ['case-variant duplicate title', (records) => { records[4].title = records[3].title.toUpperCase(); }, /duplicate title/i],
+    ['modified featured title', (records) => { records[0].title = 'Synthetic featured certification title'; }, /owner-approved value/i],
+    ['modified remainder title', (records) => { records[4].title = 'Modified certification title'; }, /owner-approved value/i],
+    ['modified remainder issuer', (records) => { records[4].issuer = 'Modified issuer'; }, /owner-approved value/i],
+    ['modified issue date', (records) => { records[4].issuedDate = '2025-04'; }, /owner-approved value/i],
+    ['invalid issue month', (records) => { records[4].issuedDate = '2025-13'; }, /valid YYYY-MM/i],
+    ['invalid featured expiry month', (records) => { records[0].expiresDate = '2027-13'; }, /valid YYYY-MM/i],
+    ['invalid remainder expiry month', (records) => {
+      records[4].expiresDate = '2025-13';
+      records[4].credentialStatus = 'active';
+    }, /valid YYYY-MM/i],
+    ['expiry preceding issue', (records) => { records[0].expiresDate = '2026-06'; }, /precedes its issue date/i],
+    ['expiry with null status', (records) => { records[0].credentialStatus = null; }, /active or expired/i],
+    ['status without expiry', (records) => { records[4].credentialStatus = 'active'; }, /must be null/i],
+    ['wrong active status', (records) => { records[0].credentialStatus = 'expired'; }, /owner-approved value/i],
+    ['wrong expired status', (records) => { records[3].credentialStatus = 'active'; }, /owner-approved value/i],
+    ['modified credential URL', (records) => { records[4].credentialUrl = 'https://example.com/certification'; }, /owner-approved value/i],
+    ['query-bearing URL', (records) => { records[4].credentialUrl = 'https://example.com/certification?view=public'; }, /parameters|signed or expiring URL/i],
+    ['signed URL', (records) => { records[4].credentialUrl = 'https://example.com/certification?signature=redacted'; }, /signed or expiring URL|parameters/i],
+    ['shortened URL', (records) => { records[4].credentialUrl = 'https://sub.bit.ly./certification'; }, /shortener/i],
+    ['non-HTTPS URL', (records) => { records[4].credentialUrl = 'http://example.com/certification'; }, /HTTPS/i],
+    ['credential-bearing URL', (records) => { records[4].credentialUrl = 'https://user:password@example.com/certification'; }, /credential-like private content|embedded credentials/i],
+    ['featured order zero', (records) => { records[0].featuredOrder = 0; }, /1, 2, 3, or null/i],
+    ['featured order four', (records) => { records[0].featuredOrder = 4; }, /1, 2, 3, or null/i],
+    ['featured order string', (records) => { records[0].featuredOrder = '1'; }, /1, 2, 3, or null/i],
+    ['duplicate featured order', (records) => { records[1].featuredOrder = 1; }, /duplicate featured orders/i],
+    ['incomplete featured orders', (records) => { records[1].featuredOrder = null; }, /exactly three featured records|owner-approved/i],
+    ['featured order on remainder', (records) => {
+      records[2].featuredOrder = null;
+      records[3].featuredOrder = 3;
+    }, /owner-approved value|featured order/i],
+    ['null featured order on featured', (records) => { records[0].featuredOrder = null; }, /exactly three featured records|owner-approved/i],
+    ['modified publication status', (records) => { records[4].publicationStatus = 'withheld'; }, /owner-approved value/i],
+    ['image field', (records) => { records[4].image = '/images/certificate.png'; }, /publish-safe contract/i],
+    ['description field', (records) => { records[4].description = 'Additional description'; }, /publish-safe contract/i],
+    ['skills field', (records) => { records[4].skills = ['AI']; }, /publish-safe contract/i],
+    ['credential ID', (records) => { records[4].credentialId = 'synthetic-id'; }, /forbidden private or service-identifier field/i],
+    ['badge ID', (records) => { records[4].badgeId = 'synthetic-id'; }, /publish-safe contract|forbidden private or service-identifier field/i],
+    ['verification code', (records) => { records[4].verificationCode = 'synthetic-code'; }, /publish-safe contract|forbidden private or service-identifier field/i],
+    ['QR field', (records) => { records[4].qrCode = 'synthetic-code'; }, /publish-safe contract|forbidden private or service-identifier field/i],
+    ['generic metadata field', (records) => { records[4].metadata = { public: true }; }, /publish-safe contract|forbidden private or service-identifier field/i],
+    ['arbitrary additional field', (records) => { records[4].notes = 'Additional note'; }, /publish-safe contract/i],
+    ['private content on unpublished record', (records) => {
+      records[4].publicationStatus = 'withheld';
+      records[4].title = 'api_key=redacted-test-value';
+    }, /credential-like private content/i],
+    ['malformed reversed collection', (records) => {
+      records[4].issuer = 'Modified issuer';
+      records.reverse();
+    }, /owner-approved value/i],
+    ['malformed shuffled collection', (records) => {
+      records[4].issuedDate = 'not-a-month';
+      const reordered = [5, 0, 10, 3, 8, 1, 6, 9, 2, 7, 4].map((index) => records[index]);
+      records.splice(0, records.length, ...reordered);
+    }, /valid YYYY-MM/i],
+  ];
+
+  for (const [name, mutate, expectedError] of cases) {
+    await context.test(name, () => {
+      assertEveryCertificationSelectorRejects(mutate, expectedError);
+    });
+  }
 });
 
 test('homepage capability and evidence-backed skill selectors are exact and deterministic', () => {

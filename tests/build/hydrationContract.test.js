@@ -125,6 +125,39 @@ test('Projects initial render does not read browser state before hydration commi
   assert.match(explorer.slice(firstEffect), /window\.addEventListener\(['"]popstate['"]/);
 });
 
+test('certification expansion is a static native disclosure with no hydration island', async () => {
+  const [section, card, homePage, homeClient, global] = await Promise.all([
+    readFile(new URL('../../src/components/sections/Certifications.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/components/content/CertificationCard.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/pages/HomePage.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/entries/home.client.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/styles/global.css', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(section, /<details[^>]*data-certification-disclosure/);
+  assert.match(section, /<summary[^>]*>\s*View all certifications \(\{remainingCertifications\.length\} more\)/s);
+  assert.match(section, /data-certification-list="featured"/);
+  assert.match(section, /data-certification-list="remaining"/);
+  assert.match(section, /start=\{featuredCertifications\.length \+ 1\}/);
+  assert.match(card, /<h3>\{certification\.title\}<\/h3>/);
+  assert.match(homePage, /selectRemainingCertifications\(certifications\)/);
+
+  const runtime = `${section}\n${card}\n${homePage}\n${homeClient}`;
+  assert.doesNotMatch(runtime, /data-hydrate-certification/i);
+  assert.doesNotMatch(runtime, /\b(?:useState|useEffect|hydrateRoot|createRoot)\s*\(/);
+  assert.doesNotMatch(runtime, /onClick=|aria-expanded=|role=["'](?:button|dialog)["']/);
+  assert.doesNotMatch(runtime, /modal|carousel|pagination/i);
+
+  assert.match(global, /\.certification-disclosure__summary\s*\{[^}]*min-height:\s*var\(--target-min\)/s);
+  assert.match(global, /\.certification-disclosure__summary:hover/);
+  assert.match(global, /\.certification-grid--remaining/);
+  assert.match(
+    global,
+    /\.certification-disclosure:not\(\[open\]\)\s*>\s*\.certification-grid--remaining\s*\{[^}]*display:\s*none/s,
+  );
+  assert.match(global, /:focus-visible/);
+});
+
 test('primary navigation uses local anchors on Home and root-form anchors on Projects', () => {
   const home = getPrimaryNavigationItems('home');
   const projects = getPrimaryNavigationItems('projects');
@@ -246,7 +279,7 @@ test('interactive borders meet 3:1 contrast while decorative borders retain thei
     approvedSurfaces.map((surface) => Number(contrastRatio(controlBorder, surface).toFixed(4))),
     [3.8895, 3.5493, 3.1991],
   );
-  assert.equal(global.match(/var\(--color-control-border\)/g)?.length, 3);
+  assert.equal(global.match(/var\(--color-control-border\)/g)?.length, 4);
   assert.match(
     global,
     /\.site-nav__summary\s*\{[^}]*border:\s*1px solid var\(--color-control-border\)/s,
@@ -258,6 +291,10 @@ test('interactive borders meet 3:1 contrast while decorative borders retain thei
   assert.match(
     global,
     /\.home-contact-link\s*\{[^}]*border:\s*1px solid var\(--color-control-border\)/s,
+  );
+  assert.match(
+    global,
+    /\.certification-disclosure__summary\s*\{[^}]*border:\s*1px solid var\(--color-control-border\)/s,
   );
   for (const selector of ['surface', 'site-header', 'site-nav__list--mobile', 'tag-list__item', 'site-footer']) {
     const escapedSelector = selector.replaceAll('-', '\\-');

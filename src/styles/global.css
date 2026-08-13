@@ -666,6 +666,43 @@ summary:focus-visible,
   padding-block-start: var(--space-6);
 }
 
+.certification-disclosure {
+  margin-block-start: var(--space-8);
+}
+
+.certification-disclosure__summary {
+  display: inline-flex;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  max-width: 100%;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.certification-disclosure__summary:hover,
+.certification-disclosure[open] > .certification-disclosure__summary {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.certification-disclosure__summary::marker {
+  color: var(--color-accent);
+}
+
+.certification-grid--remaining {
+  margin-block-start: var(--space-6);
+}
+
+.certification-disclosure:not([open]) > .certification-grid--remaining {
+  display: none;
+}
+
 .education-item__dates {
   margin-block-end: var(--space-3);
   color: var(--color-accent);
@@ -775,6 +812,7 @@ summary:focus-visible,
 
 @media (min-width: 48rem) {
   .capability-grid,
+  .certification-grid,
   .skill-grid,
   .education-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

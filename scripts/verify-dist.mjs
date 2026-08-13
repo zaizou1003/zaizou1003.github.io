@@ -14,10 +14,12 @@ import {
   selectCapabilities,
   selectFeaturedCertifications,
   selectFeaturedProjects,
+  selectPublishedCertifications,
   selectPublishedEducation,
   selectPublishedExperience,
   selectPublishedProjects,
   selectPublishedSkillGroups,
+  selectRemainingCertifications,
 } from '../src/data/selectors.js';
 import { skills } from '../src/data/skills.js';
 import { formatMonthRange, formatMonthYear, formatYearRange } from '../src/utils/dates.js';
@@ -394,31 +396,109 @@ export function assertHomeNarrative(rootMarkup, file = 'index.html') {
       `${file} does not render the evidence-backed skills for ${group.id}`,
     );
   }
-  assertOrderedAttribute(
-    rootMarkup,
-    'data-certification-id',
-    selectFeaturedCertifications(certifications).map((record) => record.id),
-    `${file} must render the exact certification order`,
+  const featuredCertifications = selectFeaturedCertifications(certifications);
+  const remainingCertifications = selectRemainingCertifications(certifications);
+  const publishedCertifications = selectPublishedCertifications(certifications);
+  const certificationSection = rootMarkup.match(
+    /<section\b(?=[^>]*\bid="certifications")[^>]*>[\s\S]*?<\/section>/i,
+  )?.[0];
+  if (!certificationSection) throw new Error(`${file} is missing the certifications section.`);
+  assertExactCount(
+    certificationSection,
+    /<h2(?:\s|>)/gi,
+    1,
+    `${file} certifications section must contain exactly one h2`,
   );
-  for (const record of selectFeaturedCertifications(certifications)) {
+  if (/\bdata-hydrat(?:e|ion-status)\b/i.test(certificationSection)) {
+    throw new Error(`${file} certification content must remain outside hydration islands.`);
+  }
+  const featuredList = certificationSection.match(
+    /<ol\b(?=[^>]*\bdata-certification-list="featured")[^>]*>([\s\S]*?)<\/ol>/i,
+  );
+  if (!featuredList) throw new Error(`${file} is missing the featured certification list.`);
+  const disclosure = certificationSection.match(
+    /<details\b(?=[^>]*\bdata-certification-disclosure(?:="[^"]*")?)[^>]*>([\s\S]*?)<\/details>/i,
+  );
+  if (!disclosure) throw new Error(`${file} is missing the native certification disclosure.`);
+  const disclosureOpening = disclosure[0].match(/^<details\b[^>]*>/i)?.[0] ?? '';
+  if (/\sopen(?:\s|=|>)/i.test(disclosureOpening)) {
+    throw new Error(`${file} must not open the certification disclosure by default.`);
+  }
+  const summary = disclosure[1].match(/<summary\b([^>]*)>([\s\S]*?)<\/summary>/i);
+  if (!summary || visibleText(summary[2]) !== 'View all certifications (8 more)') {
+    throw new Error(`${file} has an unexpected certification disclosure summary.`);
+  }
+  if (/\baria-expanded\s*=/i.test(summary[1]) || /<(?:a|button|input|select|textarea)\b/i.test(summary[2])) {
+    throw new Error(`${file} certification summary must use native state without nested controls.`);
+  }
+  if (/<(?:header|nav|main|section|aside|footer)\b/i.test(disclosure[1])) {
+    throw new Error(`${file} certification disclosure must not introduce an extra landmark or section.`);
+  }
+  const remainingList = disclosure[1].match(
+    /<ol\b(?=[^>]*\bdata-certification-list="remaining")(?=[^>]*\bstart="4")[^>]*>([\s\S]*?)<\/ol>/i,
+  );
+  if (!remainingList) throw new Error(`${file} is missing the ordered remaining certification list.`);
+  if (certificationSection.indexOf(featuredList[0]) > certificationSection.indexOf(disclosure[0])) {
+    throw new Error(`${file} must render featured certifications before the disclosure.`);
+  }
+  assertOrderedAttribute(
+    featuredList[1],
+    'data-certification-id',
+    featuredCertifications.map((record) => record.id),
+    `${file} must render the exact featured certification order`,
+  );
+  assertOrderedAttribute(
+    remainingList[1],
+    'data-certification-id',
+    remainingCertifications.map((record) => record.id),
+    `${file} must render the exact remaining certification order`,
+  );
+  assertOrderedAttribute(
+    certificationSection,
+    'data-certification-id',
+    publishedCertifications.map((record) => record.id),
+    `${file} must render every published certification exactly once`,
+  );
+  for (const record of publishedCertifications) {
     const article = findArticleByAttribute(rootMarkup, 'data-certification-id', record.id);
     if (!article) throw new Error(`${file} is missing certification ${record.id}.`);
+    assertExactCount(
+      article,
+      /<h3(?:\s|>)/gi,
+      1,
+      `${file} certification ${record.id} must contain exactly one h3`,
+    );
+    const cardHeading = article.match(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i)?.[1] ?? '';
+    if (visibleText(cardHeading) !== record.title) {
+      throw new Error(`${file} certification ${record.id} must use its approved title as the h3.`);
+    }
     assertContainsAll(
       article,
       [record.title, record.issuer],
       `${file} does not render the approved certification ${record.id}`,
     );
-    const certificationDates = [
-      formatMonthYear(record.issuedDate),
-      ...(record.expiresDate ? [formatMonthYear(record.expiresDate)] : []),
-    ];
+    const certificationDates = [`Issued ${formatMonthYear(record.issuedDate)}`];
+    if (record.credentialStatus === 'active') {
+      certificationDates.push(`Expires ${formatMonthYear(record.expiresDate)}`);
+    } else if (record.credentialStatus === 'expired') {
+      certificationDates.push(`Expired ${formatMonthYear(record.expiresDate)}`);
+    }
     assertContainsAll(
-      article,
+      visibleText(article),
       certificationDates,
       `${file} does not render the approved certification dates for ${record.id}`,
     );
-    if (record.credentialUrl === null && /<a\b/i.test(article)) {
-      throw new Error(`${file} renders an unapproved credential link for ${record.id}.`);
+    if (
+      record.credentialStatus === null &&
+      /\b(?:Expires|Expired)\s+[A-Z][a-z]+\s+\d{4}\b/.test(visibleText(article))
+    ) {
+      throw new Error(`${file} renders an unapproved validity claim for ${record.id}.`);
+    }
+    if (record.credentialUrl === null && /<(?:a|button)\b/i.test(article)) {
+      throw new Error(`${file} renders an unapproved credential control for ${record.id}.`);
+    }
+    if (/<img\b/i.test(article)) {
+      throw new Error(`${file} renders a prohibited certification image for ${record.id}.`);
     }
   }
   assertOrderedAttribute(
@@ -622,8 +702,18 @@ export function assertStaticShell(rootMarkup, contract, file = contract.relative
     1,
     `${file} must contain one labelled primary navigation`,
   );
-  assertExactCount(rootMarkup, /<details(?:\s|>)/gi, 1, `${file} must contain one native navigation disclosure`);
-  assertExactCount(rootMarkup, /<summary(?:\s|>)/gi, 1, `${file} must contain one disclosure summary`);
+  assertExactCount(
+    rootMarkup,
+    /<details\b(?=[^>]*\bclass="[^"]*\bsite-nav__disclosure\b[^"]*")[^>]*>/gi,
+    1,
+    `${file} must contain one native navigation disclosure`,
+  );
+  assertExactCount(
+    rootMarkup,
+    /<summary\b(?=[^>]*\bclass="[^"]*\bsite-nav__summary\b[^"]*")[^>]*>/gi,
+    1,
+    `${file} must contain one navigation disclosure summary`,
+  );
 
   const skipLink = rootMarkup.match(/<a\b[^>]*\bclass="skip-link"[^>]*>/i)?.[0] ?? '';
   if (
