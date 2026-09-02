@@ -22,7 +22,40 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
 const distDirectory = resolve(repositoryRoot, 'dist');
 const privateReportDirectory = resolve(repositoryRoot, 'private/checkpoint-reports');
+const milestone8EvidenceDirectory = resolve(privateReportDirectory, 'milestone-8-evidence');
 const quietWindowMilliseconds = 500;
+
+function freezeScenarios(scenarios) {
+  return Object.freeze(scenarios.map((scenario) => Object.freeze(scenario)));
+}
+
+export const ACCESSIBILITY_SCENARIOS = Object.freeze({
+  hydrated: freezeScenarios([
+    { id: 'mobile-320', width: 320, height: 900 },
+    { id: 'mobile-360', width: 360, height: 900 },
+    { id: 'mobile-390', width: 390, height: 900 },
+    { id: 'mobile-landscape', width: 667, height: 375 },
+    { id: 'tablet-768', width: 768, height: 1000 },
+    { id: 'desktop-1024', width: 1024, height: 1000 },
+    { id: 'desktop-1280', width: 1280, height: 1000 },
+    { id: 'desktop-1440', width: 1440, height: 1000 },
+    { id: 'desktop-1920', width: 1920, height: 1080 },
+  ]),
+  noJavaScript: freezeScenarios([
+    { id: 'static-320', width: 320, height: 900 },
+    { id: 'static-768', width: 768, height: 1000 },
+    { id: 'static-1440', width: 1440, height: 1000 },
+  ]),
+  reflow: freezeScenarios([
+    { id: 'layout-equivalent-200', width: 640, height: 900, equivalentZoomPercent: 200 },
+    { id: 'layout-equivalent-400', width: 320, height: 900, equivalentZoomPercent: 400 },
+  ]),
+  textOnly: Object.freeze({ id: 'text-only-200', width: 1280, height: 1000, textScalePercent: 200 }),
+  forcedColors: freezeScenarios([
+    { id: 'forced-colors-mobile', width: 320, height: 900 },
+    { id: 'forced-colors-desktop', width: 1440, height: 1000 },
+  ]),
+});
 
 const contentTypes = new Map([
   ['.css', 'text/css; charset=utf-8'],
@@ -48,6 +81,54 @@ export function rectanglesIntersect(first, second, tolerance = 0.75) {
     Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top);
   return horizontalOverlap > tolerance && verticalOverlap > tolerance;
 }
+
+export function measureResponsiveAccessibilityState() {
+  const tolerance = 0.75;
+  const isVisible = (element) => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      rect.width > tolerance &&
+      rect.height > tolerance
+    );
+  };
+  const visibleContent = [
+    ...document.querySelectorAll(
+      '#root h1, #root h2, #root h3, #root p, #root li, #root a, #root button, #root summary',
+    ),
+  ].filter(isVisible);
+  const clippedContentCount = visibleContent.filter((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const outsideViewport = rect.left < -1 || rect.right > innerWidth + 1;
+    const clippedInlineContent =
+      element.scrollWidth > element.clientWidth + 2 &&
+      ['hidden', 'clip'].includes(style.overflowX);
+    return outsideViewport || clippedInlineContent;
+  }).length;
+  const headerHeight =
+    document.querySelector('.site-header')?.getBoundingClientRect().height ?? 0;
+  const anchorTargets = [
+    ...document.querySelectorAll('main section[id], [data-project-article-id][id]'),
+  ];
+
+  return {
+    horizontalOverflow:
+      Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) >
+      document.documentElement.clientWidth + 1,
+    clippedContentCount,
+    anchorsClearStickyHeader: anchorTargets.every(
+      (target) =>
+        Number.parseFloat(getComputedStyle(target).scrollMarginTop) + 1 >= headerHeight,
+    ),
+  };
+}
+
+const responsiveAccessibilityRuntimeSource =
+  `const measureResponsiveAccessibilityState = ${measureResponsiveAccessibilityState.toString()};`;
 
 function measureCertificationOverlapState() {
   const tolerance = 0.75;
@@ -146,14 +227,27 @@ const certificationOverlapRuntimeSource = [
   `const measureCertificationOverlapState = ${measureCertificationOverlapState.toString()};`,
 ].join('\n');
 
-async function preparePreviewDirectory() {
-  const requestedDirectory =
-    process.env.MILESTONE7_PREVIEW_DIR ??
-    process.env.MILESTONE5_PREVIEW_DIR ??
-    process.env.MILESTONE4_PREVIEW_DIR ??
-    resolve(privateReportDirectory, 'milestone-7-previews');
+export function resolveQualityEvidenceDirectory({ argv = process.argv, env = process.env } = {}) {
+  const milestone8Requested =
+    argv.includes('--evidence') || env.MILESTONE8_CAPTURE_EVIDENCE === '1';
+  const legacyRequestedDirectory =
+    env.MILESTONE7_PREVIEW_DIR ??
+    env.MILESTONE5_PREVIEW_DIR ??
+    env.MILESTONE4_PREVIEW_DIR;
+  if (!milestone8Requested && !legacyRequestedDirectory) return null;
+
+  const requestedDirectory = milestone8Requested
+    ? env.MILESTONE8_EVIDENCE_DIR ?? milestone8EvidenceDirectory
+    : legacyRequestedDirectory;
 
   const directory = resolve(requestedDirectory);
+  if (
+    milestone8Requested &&
+    directory !== milestone8EvidenceDirectory &&
+    !directory.startsWith(`${milestone8EvidenceDirectory}${sep}`)
+  ) {
+    throw new Error('Milestone 8 evidence must stay under its private evidence directory.');
+  }
   if (
     directory !== privateReportDirectory &&
     !directory.startsWith(`${privateReportDirectory}${sep}`)
@@ -161,6 +255,12 @@ async function preparePreviewDirectory() {
     throw new Error('Preview output must stay under private/checkpoint-reports.');
   }
 
+  return directory;
+}
+
+async function preparePreviewDirectory() {
+  const directory = resolveQualityEvidenceDirectory();
+  if (!directory) return null;
   await mkdir(directory, { recursive: true });
   return directory;
 }
@@ -370,6 +470,140 @@ async function evaluate(connection, sessionId, expression) {
   return result.result.value;
 }
 
+const AXE_IMPACTS = new Set(['minor', 'moderate', 'serious', 'critical']);
+
+export function summarizeAxeResults(results) {
+  if (!results || !Array.isArray(results.violations)) {
+    throw new Error('malformed-axe-results');
+  }
+  return results.violations.map((violation) => {
+    if (
+      !violation ||
+      typeof violation.id !== 'string' ||
+      !violation.id ||
+      !AXE_IMPACTS.has(violation.impact) ||
+      !Array.isArray(violation.nodes)
+    ) {
+      throw new Error('malformed-axe-results');
+    }
+    return {
+      id: violation.id,
+      impact: violation.impact,
+      nodeCount: violation.nodes.length,
+    };
+  });
+}
+
+async function verifyAxeState(
+  connection,
+  origin,
+  axeSource,
+  { id, path, width, height, openCertifications = false, projectFilter = null },
+) {
+  const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await connection.send('Target.attachToTarget', { targetId, flatten: true });
+  const requests = [];
+  const requestListener = (message) => {
+    if (message.sessionId === sessionId) requests.push(message.params.request.url);
+  };
+  const requestListeners = connection.listeners.get('Network.requestWillBeSent') ?? new Set();
+  requestListeners.add(requestListener);
+  connection.listeners.set('Network.requestWillBeSent', requestListeners);
+  try {
+    await connection.send('Runtime.enable', {}, sessionId);
+    await connection.send('Page.enable', {}, sessionId);
+    await connection.send('Network.enable', {}, sessionId);
+    await connection.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height, deviceScaleFactor: 1, mobile: width < 768 },
+      sessionId,
+    );
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.navigate', { url: `${origin}${path}` }, sessionId);
+    await loaded;
+    if (path !== '/404.html') {
+      await evaluate(
+        connection,
+        sessionId,
+        `(async () => {
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            const statuses = [...document.querySelectorAll('[data-hydration-status]')]
+              .map((element) => element.dataset.hydrationStatus);
+            if (statuses.length > 0 && statuses.every((status) => status === 'complete')) return;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          throw new Error('Timed out before axe verification.');
+        })()`,
+      );
+    }
+    if (openCertifications) {
+      await evaluate(
+        connection,
+        sessionId,
+        `document.querySelector('[data-certification-disclosure]').open = true`,
+      );
+    }
+    if (projectFilter) {
+      await evaluate(
+        connection,
+        sessionId,
+        `(async () => {
+          document.querySelector('[data-project-filter=${JSON.stringify(projectFilter)}]').click();
+          const deadline = Date.now() + 5000;
+          while (Date.now() < deadline) {
+            if (document.querySelector('[data-project-filter][aria-pressed="true"]')?.dataset.projectFilter === ${JSON.stringify(projectFilter)}) return;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          throw new Error('Timed out selecting the axe project state.');
+        })()`,
+      );
+    }
+    const injection = await connection.send(
+      'Runtime.evaluate',
+      { expression: axeSource, awaitPromise: true, returnByValue: false },
+      sessionId,
+    );
+    if (injection.exceptionDetails) throw new Error('Local axe injection failed.');
+    const safeResults = await evaluate(
+      connection,
+      sessionId,
+      `(async () => {
+        if (!globalThis.axe || typeof globalThis.axe.run !== 'function') {
+          throw new Error('axe is unavailable');
+        }
+        const results = await globalThis.axe.run(document, {
+          runOnly: {
+            type: 'tag',
+            values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
+          }
+        });
+        return {
+          violations: results.violations.map((violation) => ({
+            id: violation.id,
+            impact: violation.impact,
+            nodes: Array.from({ length: violation.nodes.length }, () => null)
+          }))
+        };
+      })()`,
+    );
+    const violations = summarizeAxeResults(safeResults);
+    const blocking = violations.filter(({ impact }) => impact === 'critical' || impact === 'serious');
+    if (blocking.length > 0) {
+      throw new Error(
+        `axe-blocking-violations: ${blocking.map(({ id, nodeCount }) => `${id}:${nodeCount}`).join(',')}`,
+      );
+    }
+    if (requests.some((requestUrl) => new URL(requestUrl).origin !== origin)) {
+      throw new Error(`axe state ${id} made an external request.`);
+    }
+    return { id, path, width, violations };
+  } finally {
+    requestListeners.delete(requestListener);
+    await connection.send('Target.closeTarget', { targetId });
+  }
+}
+
 async function verifyPage(
   connection,
   origin,
@@ -390,8 +624,11 @@ async function verifyPage(
     expectedMetadata,
     expectedJsonLd,
     javaScriptEnabled,
+    forcedColors = false,
+    height = null,
     reducedMotion = false,
     screenshotFile = null,
+    textScalePercent = 100,
     width = 320,
   },
 ) {
@@ -443,7 +680,7 @@ async function verifyPage(
     'Emulation.setDeviceMetricsOverride',
     {
       width,
-      height: width < 768 ? 900 : 1000,
+      height: height ?? (width < 768 ? 900 : 1000),
       deviceScaleFactor: 1,
       mobile: width < 768,
     },
@@ -458,6 +695,7 @@ async function verifyPage(
           name: 'prefers-reduced-motion',
           value: reducedMotion ? 'reduce' : 'no-preference',
         },
+        ...(forcedColors ? [{ name: 'forced-colors', value: 'active' }] : []),
       ],
     },
     sessionId,
@@ -484,6 +722,21 @@ async function verifyPage(
         await new Promise((resolve) => setTimeout(resolve, ${quietWindowMilliseconds}));
       })()`,
     );
+  }
+
+  if (textScalePercent !== 100) {
+    await evaluate(
+      connection,
+      sessionId,
+      `(() => {
+        const style = document.createElement('style');
+        style.dataset.qualityTextScale = 'true';
+        style.textContent = ':root { font-size: ${textScalePercent}% !important; }';
+        document.head.append(style);
+        document.documentElement.getBoundingClientRect();
+      })()`,
+    );
+    await delay(25);
   }
 
   const initialCertificationState = await evaluate(
@@ -751,6 +1004,7 @@ async function verifyPage(
     connection,
     sessionId,
     `(() => {
+      ${responsiveAccessibilityRuntimeSource}
       const skipLink = document.querySelector('.skip-link');
       const primaryNav = document.querySelector('nav[aria-label="Primary"]');
       const summary = document.querySelector('.site-nav__summary');
@@ -793,6 +1047,18 @@ async function verifyPage(
         'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
       );
       const reducedTransition = getComputedStyle(document.querySelector('.link-button')).transitionDuration;
+      const flowCandidates = [
+        ...document.querySelectorAll('[data-home-section], [data-project-article-id], footer.site-footer'),
+      ].filter(
+        (candidate, _index, candidates) =>
+          isVisible(candidate) &&
+          !candidates.some((other) => other !== candidate && other.contains(candidate)),
+      );
+      const flowRects = flowCandidates.map((element) => element.getBoundingClientRect());
+      const flowCollisionCount = flowRects.slice(1).filter(
+        (rect, index) => rect.top < flowRects[index].bottom - 1,
+      ).length;
+      const responsiveAccessibility = measureResponsiveAccessibilityState();
 
       return {
         viewportWidth: innerWidth,
@@ -868,9 +1134,13 @@ async function verifyPage(
         reducedMotionApplied:
           getComputedStyle(document.documentElement).scrollBehavior === 'auto' &&
           reducedTransition.split(',').every((duration) => duration.trim() === '0s'),
-        horizontalOverflow:
-          Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) >
-          document.documentElement.clientWidth + 1,
+        forcedColorsApplied:
+          !${forcedColors} || matchMedia('(forced-colors: active)').matches,
+        textScalePercent: ${textScalePercent},
+        clippedContentCount: responsiveAccessibility.clippedContentCount,
+        flowCollisionCount,
+        anchorsClearStickyHeader: responsiveAccessibility.anchorsClearStickyHeader,
+        horizontalOverflow: responsiveAccessibility.horizontalOverflow,
         hydrationStatus: document.querySelector('[data-hydrate-navigation]')?.dataset.hydrationStatus,
         projectsHydrationStatus: document.querySelector('[data-hydrate-projects]')?.dataset.hydrationStatus ?? null,
         hydrationStatuses: [...document.querySelectorAll('[data-hydration-status]')]
@@ -936,6 +1206,9 @@ async function verifyPage(
     [snapshot.summaryCount !== 1, 'summary-count'],
     [snapshot.coreTextLength < 20, 'core-text'],
     [snapshot.horizontalOverflow, 'horizontal-overflow'],
+    [snapshot.clippedContentCount !== 0, 'content-clipping'],
+    [snapshot.flowCollisionCount !== 0, 'flow-collision'],
+    [!snapshot.anchorsClearStickyHeader, 'anchor-clearance'],
     [!snapshot.stickyHeader, 'sticky-header'],
     [!snapshot.summaryTargetIsMinimum, 'summary-target'],
     [!snapshot.practicalPointerTargetsMeetMinimum, 'practical-pointer-targets'],
@@ -1142,6 +1415,9 @@ async function verifyPage(
   if (reducedMotion && !snapshot.reducedMotionApplied) {
     throw new Error(`${path} at ${width}px did not apply the reduced-motion contract.`);
   }
+  if (forcedColors && !snapshot.forcedColorsApplied) {
+    throw new Error(`${path} at ${width}px did not apply forced-colours emulation.`);
+  }
   const expectedMetadataSnapshot = {
     title: expectedMetadata.title,
     description: expectedMetadata.description,
@@ -1188,6 +1464,148 @@ async function verifyPage(
     networkRequestCount: networkRequests.length,
     screenshotFile,
   };
+}
+
+async function verifyResponsiveAccessibilityRegression(connection, origin) {
+  const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await connection.send('Target.attachToTarget', {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await connection.send('Runtime.enable', {}, sessionId);
+    await connection.send('Page.enable', {}, sessionId);
+    await connection.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false },
+      sessionId,
+    );
+    const loaded = connection.once('Page.loadEventFired', sessionId);
+    await connection.send('Page.navigate', { url: `${origin}/` }, sessionId);
+    await loaded;
+    await evaluate(
+      connection,
+      sessionId,
+      `(async () => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          const statuses = [...document.querySelectorAll('[data-hydration-status]')]
+            .map((element) => element.dataset.hydrationStatus);
+          if (statuses.length > 0 && statuses.every((status) => status === 'complete')) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error('Timed out before responsive accessibility regression verification.');
+      })()`,
+    );
+
+    const result = await evaluate(
+      connection,
+      sessionId,
+      `(() => {
+        ${responsiveAccessibilityRuntimeSource}
+        const root = document.querySelector('#root');
+        const anchor = document.querySelector('main section[id]');
+        if (!root || !anchor) return { applicable: false };
+
+        const forceLayout = () => document.documentElement.getBoundingClientRect();
+        const baseline = measureResponsiveAccessibilityState();
+        const horizontalFixture = document.createElement('div');
+        const clippingFixture = document.createElement('p');
+        const anchorFixture = document.createElement('style');
+        let horizontal;
+        let clipping;
+        let anchorClearance;
+        try {
+          horizontalFixture.dataset.qualityResponsiveRegression = 'horizontal-overflow';
+          horizontalFixture.setAttribute('aria-hidden', 'true');
+          horizontalFixture.style.cssText =
+            'width: calc(100vw + 64px); height: 1px; margin: 0; padding: 0;';
+          document.body.append(horizontalFixture);
+          forceLayout();
+          horizontal = measureResponsiveAccessibilityState();
+          horizontalFixture.remove();
+          forceLayout();
+
+          clippingFixture.dataset.qualityResponsiveRegression = 'content-clipping';
+          clippingFixture.setAttribute('aria-hidden', 'true');
+          clippingFixture.textContent = 'Responsive detector regression sentinel';
+          clippingFixture.style.cssText =
+            'width: 1px; max-width: 1px; height: 1.5em; overflow-x: hidden; white-space: nowrap;';
+          root.append(clippingFixture);
+          forceLayout();
+          clipping = measureResponsiveAccessibilityState();
+          clippingFixture.remove();
+          forceLayout();
+
+          anchorFixture.dataset.qualityResponsiveRegression = 'anchor-clearance';
+          anchorFixture.textContent =
+            'main section[id] { scroll-margin-block-start: 0 !important; }';
+          document.head.append(anchorFixture);
+          forceLayout();
+          anchorClearance = measureResponsiveAccessibilityState();
+        } finally {
+          horizontalFixture.remove();
+          clippingFixture.remove();
+          anchorFixture.remove();
+          forceLayout();
+        }
+        const restored = measureResponsiveAccessibilityState();
+        const fixturesRemoved =
+          !horizontalFixture.isConnected &&
+          !clippingFixture.isConnected &&
+          !anchorFixture.isConnected &&
+          !document.querySelector('[data-quality-responsive-regression]');
+
+        return {
+          applicable: true,
+          baseline,
+          horizontal,
+          clipping,
+          anchorClearance,
+          restored,
+          fixturesRemoved,
+          cleanupRestored: fixturesRemoved
+        };
+      })()`,
+    );
+
+    const isClean = (measurement) =>
+      Boolean(
+        measurement &&
+          !measurement.horizontalOverflow &&
+          measurement.clippedContentCount === 0 &&
+          measurement.anchorsClearStickyHeader,
+      );
+    const failures = [
+      [!result.applicable, 'fixture-missing'],
+      [!isClean(result.baseline), 'baseline-not-clean'],
+      [!result.horizontal?.horizontalOverflow, 'horizontal-overflow-undetected'],
+      [
+        result.clipping?.clippedContentCount <= result.baseline?.clippedContentCount,
+        'content-clipping-undetected',
+      ],
+      [result.anchorClearance?.anchorsClearStickyHeader !== false, 'anchor-clearance-undetected'],
+      [!isClean(result.restored), 'restored-state-not-clean'],
+      [!result.fixturesRemoved, 'fixture-cleanup-not-restored'],
+    ]
+      .filter(([failed]) => failed)
+      .map(([, rule]) => rule);
+    if (failures.length > 0) {
+      throw new Error(
+        `Responsive accessibility detector negative regression failed: ${failures.join(', ')}.`,
+      );
+    }
+
+    return {
+      status: 'detected-and-restored',
+      horizontalOverflowDetected: true,
+      contentClippingDetected: true,
+      anchorClearanceDetected: true,
+      cleanupRestored: true,
+    };
+  } finally {
+    await connection.send('Target.closeTarget', { targetId });
+  }
 }
 
 async function verifyCertificationOverlapRegression(connection, origin) {
@@ -1691,13 +2109,17 @@ async function verifyNotFoundPage(connection, origin, previewDirectory, width) {
     ) {
       throw new Error(`404.html at ${width}px made an external or failed network request.`);
     }
-    const screenshotFile = resolve(previewDirectory, `404-${width}.png`);
-    const screenshot = await connection.send(
-      'Page.captureScreenshot',
-      { format: 'png', captureBeyondViewport: true, fromSurface: true },
-      sessionId,
-    );
-    await writeFile(screenshotFile, Buffer.from(screenshot.data, 'base64'));
+    const screenshotFile = previewDirectory
+      ? resolve(previewDirectory, `404-${width}.png`)
+      : null;
+    if (screenshotFile) {
+      const screenshot = await connection.send(
+        'Page.captureScreenshot',
+        { format: 'png', captureBeyondViewport: true, fromSurface: true },
+        sessionId,
+      );
+      await writeFile(screenshotFile, Buffer.from(screenshot.data, 'base64'));
+    }
     return {
       path: '/404.html',
       width,
@@ -1753,7 +2175,6 @@ export async function verifyBrowser() {
         id: 'home',
         screenshotPrefix: 'home',
         screenshotWidths: [320, 1440],
-        widths: [320, 768, 1440],
         path: '/',
         expectedMetadata: getPageMetadata('home'),
         expectedJsonLd: getPageJsonLd('home'),
@@ -1782,7 +2203,6 @@ export async function verifyBrowser() {
         id: 'projects',
         screenshotPrefix: 'projects',
         screenshotWidths: [320, 768, 1440],
-        widths: [320, 768, 1440],
         path: '/projects/',
         expectedMetadata: getPageMetadata('projects'),
         expectedJsonLd: getPageJsonLd('projects'),
@@ -1806,17 +2226,19 @@ export async function verifyBrowser() {
     const hydrated = [];
     const noJavaScript = [];
     const reducedMotion = [];
+    const reflow = [];
+    const textOnly = [];
+    const forcedColors = [];
     const screenshots = [];
-    const legacyPageScreenshotsRequested = Boolean(
-      process.env.MILESTONE5_PREVIEW_DIR ?? process.env.MILESTONE4_PREVIEW_DIR,
-    );
     for (const contract of contracts) {
-      for (const width of contract.widths) {
-        const screenshotFile = legacyPageScreenshotsRequested && contract.screenshotWidths.includes(width)
+      for (const scenario of ACCESSIBILITY_SCENARIOS.hydrated) {
+        const { id, width, height } = scenario;
+        const screenshotFile = previewDirectory && contract.screenshotWidths.includes(width)
           ? resolve(previewDirectory, `${contract.screenshotPrefix}-${width}.png`)
           : null;
         const result = await verifyPage(connection, staticServer.origin, {
           ...contract,
+          height,
           javaScriptEnabled: true,
           screenshotFile,
           width,
@@ -1830,16 +2252,25 @@ export async function verifyBrowser() {
           );
         }
         hydrated.push({
+          scenario: id,
           path: contract.path,
           width,
+          height,
           status: result.hydrationStatus,
           horizontalOverflow: result.horizontalOverflow,
+          clippedContentCount: result.clippedContentCount,
+          flowCollisionCount: result.flowCollisionCount,
+          anchorsClearStickyHeader: result.anchorsClearStickyHeader,
           certificationLayout: result.certificationLayout,
         });
         if (screenshotFile) screenshots.push(screenshotFile);
+      }
 
+      for (const scenario of ACCESSIBILITY_SCENARIOS.noJavaScript) {
+        const { id, width, height } = scenario;
         const staticResult = await verifyPage(connection, staticServer.origin, {
           ...contract,
+          height,
           javaScriptEnabled: false,
           width,
         });
@@ -1852,12 +2283,74 @@ export async function verifyBrowser() {
           );
         }
         noJavaScript.push({
+          scenario: id,
           path: contract.path,
           width,
+          height,
           status: staticResult.hydrationStatus,
           horizontalOverflow: staticResult.horizontalOverflow,
+          clippedContentCount: staticResult.clippedContentCount,
+          flowCollisionCount: staticResult.flowCollisionCount,
+          anchorsClearStickyHeader: staticResult.anchorsClearStickyHeader,
           certificationLayout: staticResult.certificationLayout,
         });
+      }
+
+      for (const scenario of ACCESSIBILITY_SCENARIOS.reflow) {
+        const result = await verifyPage(connection, staticServer.origin, {
+          ...contract,
+          ...scenario,
+          javaScriptEnabled: true,
+        });
+        reflow.push({
+          scenario: scenario.id,
+          path: contract.path,
+          width: scenario.width,
+          equivalentZoomPercent: scenario.equivalentZoomPercent,
+          horizontalOverflow: result.horizontalOverflow,
+          clippedContentCount: result.clippedContentCount,
+          flowCollisionCount: result.flowCollisionCount,
+        });
+      }
+
+      const textScenario = ACCESSIBILITY_SCENARIOS.textOnly;
+      const textResult = await verifyPage(connection, staticServer.origin, {
+        ...contract,
+        ...textScenario,
+        javaScriptEnabled: true,
+      });
+      textOnly.push({
+        scenario: textScenario.id,
+        path: contract.path,
+        textScalePercent: textScenario.textScalePercent,
+        horizontalOverflow: textResult.horizontalOverflow,
+        clippedContentCount: textResult.clippedContentCount,
+        flowCollisionCount: textResult.flowCollisionCount,
+      });
+
+      for (const scenario of ACCESSIBILITY_SCENARIOS.forcedColors) {
+        try {
+          const result = await verifyPage(connection, staticServer.origin, {
+            ...contract,
+            ...scenario,
+            forcedColors: true,
+            javaScriptEnabled: true,
+          });
+          forcedColors.push({
+            scenario: scenario.id,
+            path: contract.path,
+            supported: true,
+            applied: result.forcedColorsApplied,
+          });
+        } catch (error) {
+          if (!/Invalid parameters|Unknown media feature/i.test(error.message)) throw error;
+          forcedColors.push({
+            scenario: scenario.id,
+            path: contract.path,
+            supported: false,
+            applied: false,
+          });
+        }
       }
 
       const reducedResult = await verifyPage(connection, staticServer.origin, {
@@ -1878,6 +2371,10 @@ export async function verifyBrowser() {
       reducedMotion.push({ path: contract.path, width: 320, status: 'reduced' });
     }
 
+    const responsiveAccessibilityRegression = await verifyResponsiveAccessibilityRegression(
+      connection,
+      staticServer.origin,
+    );
     const certificationOverlapRegression = await verifyCertificationOverlapRegression(
       connection,
       staticServer.origin,
@@ -1887,7 +2384,20 @@ export async function verifyBrowser() {
     for (const width of [320, 1440]) {
       const result = await verifyNotFoundPage(connection, staticServer.origin, previewDirectory, width);
       notFound.push(result);
-      screenshots.push(result.screenshot);
+      if (result.screenshot) screenshots.push(result.screenshot);
+    }
+
+    const axeSource = await readFile(resolve(repositoryRoot, 'node_modules/axe-core/axe.min.js'), 'utf8');
+    const axe = [];
+    for (const state of [
+      { id: 'home-closed-mobile', path: '/', width: 320, height: 900 },
+      { id: 'home-open-desktop', path: '/', width: 1440, height: 1000, openCertifications: true },
+      { id: 'projects-all-mobile', path: '/projects/', width: 320, height: 900 },
+      { id: 'projects-filtered-desktop', path: '/projects/', width: 1440, height: 1000, projectFilter: 'agentic-ai' },
+      { id: 'not-found-mobile', path: '/404.html', width: 320, height: 900 },
+      { id: 'not-found-desktop', path: '/404.html', width: 1440, height: 1000 },
+    ]) {
+      axe.push(await verifyAxeState(connection, staticServer.origin, axeSource, state));
     }
 
     const mismatch = await verifyPage(connection, staticServer.origin, {
@@ -1914,8 +2424,13 @@ export async function verifyBrowser() {
       hydrated,
       noJavaScript,
       reducedMotion,
+      reflow,
+      textOnly,
+      forcedColors,
+      axe,
       mismatchDetected: true,
       projectsMismatchDetected: true,
+      responsiveAccessibilityRegression,
       certificationOverlapRegression,
       projectsBehavior,
       notFound,

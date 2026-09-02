@@ -891,7 +891,7 @@ At implementation time, use the current official Actions majors or, preferably, 
 
 ## 15. Testing strategy
 
-Testing packages are dev-only and are added only together with real tests. Recommended tools are Vitest, Testing Library/Jest DOM/User Event for component behavior, jsdom, Playwright for route/responsive tests, `@axe-core/playwright` or equivalent axe integration, and ESLint with React Hooks and JSX accessibility rules. Exact versions are selected and locked during the approved implementation, not by this document.
+Testing packages are dev-only and are added only together with real tests. The implemented Milestone 8 equivalents are Node's built-in test runner, the existing custom Chromium/CDP production verifier, `oxlint@1.81.0` with stable built-in React/JSX-accessibility rules, and locally injected `axe-core@4.13.0`. Playwright, Vitest, Testing Library, jsdom, ESLint, and downloaded browser binaries are not required for this repository's approved quality architecture.
 
 ### Data and unit tests
 
@@ -924,20 +924,22 @@ Testing packages are dev-only and are added only together with real tests. Recom
 - With JavaScript disabled, both direct URLs retain all core content and links; Projects shows all published records; mobile navigation remains usable without a client event handler.
 - Homepage anchors and project article fragments focus/position content correctly.
 - Keyboard-only completion of navigation and project filtering.
-- Automated axe checks on both pages and representative filter states.
-- Responsive matrix in section 9 plus reduced-motion emulation, dark/high-contrast modes where supported, and slow-network image behavior.
+- Automated axe checks use the local development dependency through verifier-controlled CDP only; axe never enters source HTML, production bundles, network requests, or `dist`. Critical and serious violations fail the gate, while sanitized moderate/minor rule IDs and counts remain review evidence.
+- Hydrated layouts run at 320, 360, 390, 667×375 short landscape, 768, 1024, 1280, 1440, and 1920 CSS px. No-JavaScript checks remain at 320, 768, and 1440 px. Layout-equivalent 200% and 400% reflow, 200% text-only enlargement, reduced motion, and forced-colours emulation (when CDP supports it) supplement—but do not replace—genuine manual browser zoom and assistive-technology review.
 - Verify no horizontal overflow and no content available only on hover.
 - Manual Chromium/Firefox, keyboard, and one screen-reader pass.
 
 ### Build and performance checks
 
-- Clean `npm ci`, lint, unit/component tests, production build, dist verification, and audits.
+- Clean `npm ci`, fail-on-warning Oxlint, Node unit/component/build-contract tests, production build, dist verification, responsive/CDP/axe verification, gzip budgets, and both audits.
 - `dist/index.html` and `dist/projects/index.html` exist, every referenced asset exists, and no `<!--app-html-->` or temporary prerender marker remains.
 - Parse both generated documents with JavaScript disabled. Assert a non-empty populated `#root`, one `<main>`, the expected `<h1>`, navigation links, homepage flagship/experience/contact text, and every published Projects article/link.
 - Explicitly fail when `#root` is absent, empty, whitespace-only, comment-only, or contains only a loading shell/spinner. A hydration script reference does not satisfy static-render verification.
 - Verify that the client bundles use `hydrateRoot` and that automated browser runs emit no hydration mismatch/recoverable error.
 - No source map, GLB, Firebase/EmailJS identifier, CV, certificate recovery image, signed URL, environment file, or private directory appears in `dist`.
-- Initial JavaScript target: ≤100 KiB gzip per page; CSS ≤30 KiB gzip; no single normally loaded image exceeds its budget.
+- Hard initial budgets: JavaScript ≤102400 gzip bytes per page and CSS ≤30720 gzip bytes per page, measured deterministically from the verifier-approved live asset graph; no single normally loaded image exceeds its existing budget.
+- Routine `verify:browser` and consolidated `quality` runs are artifact-free. Optional screenshots require an explicit Milestone 8 evidence flag and remain under ignored `private/checkpoint-reports/milestone-8-evidence/`.
+- Automated CDP, axe, and equivalent-reflow evidence is distinct from the owner's genuine Chromium/Firefox keyboard and NVDA/Firefox reviews. Those manual reviews remain pending until a person completes the blank private procedures and records the results.
 - Lighthouse targets under stable test conditions: Accessibility 100, Best Practices ≥95, SEO ≥95, mobile Performance ≥90. Treat regressions as review blockers, not absolute field-performance claims.
 - Lab targets: LCP ≤2.5 s, CLS ≤0.1, and low main-thread blocking on a representative mobile profile.
 
@@ -1015,7 +1017,7 @@ Every deletion/removal above is a future reviewed migration action, not authoriz
 | 6. Approved optimized assets | Local image variants, intrinsic dimensions, alt text, social images, favicons | Image/private-data review passes; budgets pass; no GLB/CV/recovered certificate imagery |
 | 7. Metadata and crawlability | Per-page titles/descriptions/canonicals/OG, minimal JSON-LD, robots, sitemap, 404, pre-rendered semantic bodies | HTML/JSON-LD/XML/static-body validation passes; empty mount test fails as designed; only canonical domain; 404 has no redirect |
 | 7.5. Certifications expansion | Eleven verified text-only certifications; three featured and eight remaining in a native disclosure; normalized contracts/selectors and static/privacy gates | Exact 11-record partition passes; all records exist in prerendered HTML; disclosure works with pointer, keyboard, and no JavaScript; no credential image, identifier, URL placeholder, or hydration island |
-| 8. Quality suite | Lint/a11y rules, unit/component/server-render/hydration tests, Playwright enabled/disabled-JS route/responsive/axe checks, dist and budget scripts | All checks green; no hydration warning; no-JavaScript core-content/navigation pass; manual keyboard and one screen-reader review recorded |
+| 8. Quality suite | Oxlint/a11y rules, Node unit/component/server-render/hydration tests, custom Chromium/CDP enabled/disabled-JS route/responsive checks, local axe injection, and dist/gzip-budget scripts | Milestone exit requires automated checks green; no hydration warning; no-JavaScript core content and navigation passing; genuine Chromium and Firefox keyboard reviews recorded; genuine NVDA/Firefox review recorded |
 | 9. Actions deployment design | `.github/workflows/pages.yml`, ordered prerender build, static-body artifact gate, Pages path/permissions/concurrency/environment; Dependabot policy | PR run verifies without deploy; empty mount blocks artifact upload; reviewed main artifact contains only complete pre-rendered `dist`; source branch contains no generated output |
 | 10. Legacy removal and dependency pruning | Remove obsolete legacy source/assets/build tracking/dependencies in redesign branch; fresh lockfile | No forbidden package/import/path; clean `npm ci`; audits reviewed; build/test/budgets remain green |
 | 11. Domain and release verification | Configure Pages source/custom apex/HTTPS/DNS under owner authorization; deploy only after separate approval | `/` and `/projects/` return 200 on canonical HTTPS; default host redirects; canonicals/social images/sitemap/404 verified live |

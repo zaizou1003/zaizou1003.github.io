@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import {
   createHydrationMismatchFixture,
   createProjectsHydrationMismatchFixture,
+  resolveQualityEvidenceDirectory,
   verifyBrowser,
 } from '../../scripts/verify-browser.mjs';
 import { getPrimaryNavigationItems } from '../../src/components/layout/navigation.js';
@@ -123,6 +124,22 @@ test('Projects initial render does not read browser state before hydration commi
   assert.equal(explorer.slice(0, firstEffect).includes('window.'), false);
   assert.match(explorer.slice(firstEffect), /window\.location\.search/);
   assert.match(explorer.slice(firstEffect), /window\.addEventListener\(['"]popstate['"]/);
+});
+
+test('project subsections retain heading navigation without repeated named region landmarks', async () => {
+  const article = await readFile(
+    new URL('../../src/components/portfolio-projects/ProjectArticle.jsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.doesNotMatch(article, /<section\b[^>]*\baria-labelledby=/s);
+  for (const headingMarkup of [
+    '<h4 id={`${project.id}-summary`}>Problem and system approach</h4>',
+    '<h4 id={`${project.id}-context`}>Implementation context and limits</h4>',
+    '<h4 id={`${project.id}-evidence`}>Verified evidence</h4>',
+  ]) {
+    assert.ok(article.includes(headingMarkup), `Missing preserved project heading: ${headingMarkup}`);
+  }
 });
 
 test('certification expansion is a static native disclosure with no hydration island', async () => {
@@ -322,4 +339,23 @@ test('the browser production gate retains metadata, 404 and same-origin request 
   assert.match(productionFunction, /verifyNotFoundPage/);
   assert.match(source, /404-\$\{width\}\.png/);
   assert.match(source, /new URL\(requestUrl\)\.origin !== origin/);
+  assert.match(source, /node_modules\/axe-core\/axe\.min\.js/);
+  assert.match(source, /ACCESSIBILITY_SCENARIOS/);
+});
+
+test('routine browser verification is artifact-free and evidence stays in the private Milestone 8 boundary', () => {
+  assert.equal(resolveQualityEvidenceDirectory({ argv: [], env: {} }), null);
+  const approved = resolveQualityEvidenceDirectory({ argv: ['--evidence'], env: {} });
+  assert.match(
+    approved.replaceAll('\\', '/'),
+    /\/private\/checkpoint-reports\/milestone-8-evidence$/,
+  );
+  assert.throws(
+    () =>
+      resolveQualityEvidenceDirectory({
+        argv: ['--evidence'],
+        env: { MILESTONE8_EVIDENCE_DIR: 'C:\\unapproved-evidence' },
+      }),
+    /Milestone 8 evidence must stay under its private evidence directory/,
+  );
 });

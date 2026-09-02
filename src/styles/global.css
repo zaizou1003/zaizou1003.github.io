@@ -173,6 +173,7 @@ summary:focus-visible,
 }
 
 .site-header {
+  container: site-header / inline-size;
   position: sticky;
   z-index: 100;
   inset-block-start: 0;
@@ -859,6 +860,22 @@ summary:focus-visible,
     padding-inline: 0.625rem;
     font-size: 0.875rem;
     white-space: nowrap;
+  }
+
+  @container site-header (max-width: calc(60rem - 1px)) {
+    .site-nav__disclosure {
+      display: block;
+    }
+
+    .site-nav__list--desktop {
+      display: none;
+    }
+
+    .site-nav__link {
+      padding-inline: 0.75rem;
+      font-size: inherit;
+      white-space: normal;
+    }
   }
 }
 

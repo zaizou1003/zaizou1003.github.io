@@ -1100,6 +1100,20 @@ export function assertTrustedDistributionPaths(outputNames, pageHtmlById) {
   return new Set([...fixedSet, ...reachableAssets]);
 }
 
+export function getTrustedPageAssetGraph(outputNames, pageHtmlById) {
+  const trustedPaths = assertTrustedDistributionPaths(outputNames, pageHtmlById);
+  const pages = Object.fromEntries(
+    ['home', 'projects'].map((pageId) => [
+      pageId,
+      extractHtmlBuildAssetReferences(pageHtmlById[pageId], pageId).map((path) => ({
+        path,
+        role: extname(path).toLowerCase() === '.js' ? 'javascript' : 'css',
+      })),
+    ]),
+  );
+  return { trustedPaths, pages };
+}
+
 export function normalizeJavaScriptForArtifactReview(source) {
   const normalized = source.split('');
   const tokens = [];
@@ -1402,7 +1416,10 @@ export async function verifyDistribution({
   const crawlVerification = await verifyDistCrawlFiles({ directory: distDirectory });
   const outputFiles = await listFiles(distDirectory);
   const outputNames = outputFiles.map((file) => relative(distDirectory, file).replaceAll('\\', '/'));
-  const trustedPaths = assertTrustedDistributionPaths(outputNames, pageHtmlById);
+  const { trustedPaths, pages: pageAssets } = getTrustedPageAssetGraph(
+    outputNames,
+    pageHtmlById,
+  );
   for (const file of outputFiles) {
     const normalizedName = relative(distDirectory, file).replaceAll('\\', '/');
     const artifactStat = await lstat(file);
@@ -1427,6 +1444,7 @@ export async function verifyDistribution({
     metadata: verifiedMetadata,
     assets: assetVerification.assets,
     crawlFiles: crawlVerification.files,
+    pageAssets,
     files: files.sort((a, b) => a.file.localeCompare(b.file)),
   };
 }

@@ -30,12 +30,12 @@ export function ProjectArticle({ project }) {
 
       <div className={styles.layout}>
         <div className={styles.narrative}>
-          <section aria-labelledby={`${project.id}-summary`}>
+          <section>
             <h4 id={`${project.id}-summary`}>Problem and system approach</h4>
             <p className={styles.summary}>{project.summary}</p>
           </section>
 
-          <section aria-labelledby={`${project.id}-context`}>
+          <section>
             <h4 id={`${project.id}-context`}>Implementation context and limits</h4>
             {project.detailedDescription.map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
@@ -50,7 +50,7 @@ export function ProjectArticle({ project }) {
           </dl>
         </div>
 
-        <section className={styles.evidence} aria-labelledby={`${project.id}-evidence`}>
+        <section className={styles.evidence}>
           <h4 id={`${project.id}-evidence`}>Verified evidence</h4>
           <ul className={styles.evidenceList} data-project-evidence="">
             {project.evidenceResults.map((evidence) => (

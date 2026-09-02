@@ -670,9 +670,10 @@ test('the package scripts use the exact verified Milestone 7 build order with pu
   assert.equal(packageJson.scripts['validate:metadata'], 'node scripts/validate-metadata.mjs');
   assert.equal(packageJson.scripts['verify:crawl'], 'node scripts/verify-crawl-files.mjs');
   assert.equal(packageJson.scripts['copy:crawl'], 'node scripts/copy-crawl-files.mjs');
+  assert.equal(packageJson.scripts['check:budgets'], 'node scripts/check-budgets.mjs');
   assert.equal(
     packageJson.scripts.build,
-    'npm run validate:content && npm run validate:metadata && npm run verify:assets && npm run verify:crawl && npm run build:client && npm run copy:assets && npm run copy:crawl && npm run build:ssr && npm run prerender && npm run verify:dist',
+    'npm run validate:content && npm run validate:metadata && npm run verify:assets && npm run verify:crawl && npm run build:client && npm run copy:assets && npm run copy:crawl && npm run build:ssr && npm run prerender && npm run verify:dist && npm run check:budgets',
   );
   const viteConfig = await readFile('vite.config.js', 'utf8');
   assert.match(viteConfig, /\bpublicDir:\s*false\b/);
