@@ -1425,6 +1425,7 @@ export async function verifyDistribution({
     const artifactStat = await lstat(file);
     if (artifactStat.isSymbolicLink()) throw new Error(`symbolic-link-artifact: ${normalizedName}`);
     if (!artifactStat.isFile()) throw new Error(`non-regular-artifact: ${normalizedName}`);
+    if (artifactStat.nlink !== 1) throw new Error(`hard-linked-artifact: ${normalizedName}`);
     assertAllowedArtifactFilename(normalizedName, trustedPaths);
     if (TEXT_ARTIFACT_EXTENSIONS.has(extname(normalizedName).toLowerCase())) {
       const content = await readFile(file, 'utf8');

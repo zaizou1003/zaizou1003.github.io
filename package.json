@@ -8,8 +8,9 @@
     "lint": "oxlint --config ./.oxlintrc.json --deny-warnings vite.config.js scripts src/components/content src/components/experience src/components/layout src/components/portfolio-projects src/components/sections src/components/ui src/data src/entries src/pages/HomePage.jsx src/pages/ProjectsPage.jsx src/utils src/validation tests",
     "validate:content": "node scripts/validate-content.mjs",
     "validate:metadata": "node scripts/validate-metadata.mjs",
+    "validate:workflow": "node scripts/validate-workflow.mjs",
     "test:content": "node --test --test-isolation=none tests/data/schemas.test.js tests/data/featuredProjects.test.js tests/data/privacyRules.test.js tests/data/selectors.test.js tests/data/approvedContracts.test.js",
-    "test:build": "node --test --test-isolation=none tests/build/verifyDist.test.js tests/build/privacyArtifacts.test.js tests/build/hydrationContract.test.js tests/build/assets.test.js tests/build/metadata.test.js tests/build/crawlFiles.test.js tests/build/accessibility.test.js tests/build/budgets.test.js",
+    "test:build": "node --test --test-isolation=none tests/build/verifyDist.test.js tests/build/privacyArtifacts.test.js tests/build/hydrationContract.test.js tests/build/assets.test.js tests/build/metadata.test.js tests/build/crawlFiles.test.js tests/build/accessibility.test.js tests/build/budgets.test.js tests/build/workflow.test.js",
     "test:run": "npm run validate:content && npm run validate:metadata && npm run test:content && npm run test:build",
     "generate:assets": "node scripts/generate-assets.mjs",
     "verify:assets": "node scripts/verify-assets.mjs",
@@ -24,7 +25,7 @@
     "check:budgets": "node scripts/check-budgets.mjs",
     "verify:browser": "node scripts/verify-browser.mjs",
     "preview:quality": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
-    "quality": "npm run lint && npm run test:run && npm run build && npm run verify:browser && npm audit --omit=dev --json && npm audit --json"
+    "quality": "npm run validate:workflow && npm run lint && npm run test:run && npm run build && npm run verify:browser && npm audit --omit=dev --json && npm audit --json"
   },
   "engines": {
     "node": ">=22.12.0"

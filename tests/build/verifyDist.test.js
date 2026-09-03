@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { copyFile, link, mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   FIXED_DISTRIBUTION_PATHS,
@@ -8,6 +11,7 @@ import {
   assertPublishSafeArtifactText,
   assertTrustedDistributionPaths,
   extractRootMarkup,
+  verifyDistribution,
   verifyPageHtml,
 } from '../../scripts/verify-dist.mjs';
 import { iconDefinitions } from '../../src/components/ui/iconPaths.js';
@@ -619,6 +623,68 @@ function trustedDistributionFixture() {
   ];
   return { outputNames, pageHtmlById };
 }
+
+async function createTrustedDistributionFixture() {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'portfolio-dist-hardlink-'));
+  const distDirectory = join(temporaryDirectory, 'dist');
+  const { pageHtmlById } = trustedDistributionFixture();
+  await mkdir(join(distDirectory, 'assets'), { recursive: true });
+  await mkdir(join(distDirectory, 'projects'), { recursive: true });
+  await mkdir(join(distDirectory, 'social'), { recursive: true });
+
+  const publicFiles = [
+    '404.html',
+    'apple-touch-icon.png',
+    'favicon.svg',
+    'robots.txt',
+    'sitemap.xml',
+    'social/home-og.jpg',
+    'social/projects-og.jpg',
+  ];
+  await Promise.all(
+    publicFiles.map(async (relativeFile) => {
+      const target = join(distDirectory, relativeFile);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolve('public', relativeFile), target);
+    }),
+  );
+
+  const pageTemplate = (pageId) =>
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="dark" /><meta name="theme-color" content="#08111F" /><!--page-metadata-->${pageHtmlById[pageId]}</head><body><div id="root">${completeMarkup(pageId)}</div>${ROOT_END_SENTINEL}</body></html>`;
+  await Promise.all([
+    writeFile(join(distDirectory, 'index.html'), transformPageHtml(pageTemplate('home'), 'home')),
+    writeFile(
+      join(distDirectory, 'projects/index.html'),
+      transformPageHtml(pageTemplate('projects'), 'projects'),
+    ),
+    ...Object.values(BUILD_ASSET_FIXTURE).map((relativeFile) =>
+      writeFile(
+        join(distDirectory, relativeFile),
+        relativeFile.endsWith('.js') ? 'export {};' : ':root{color:#fff}',
+      ),
+    ),
+  ]);
+
+  return { temporaryDirectory, distDirectory };
+}
+
+test('the production distribution verifier rejects a trusted artifact with a real hard link', async () => {
+  const { temporaryDirectory, distDirectory } = await createTrustedDistributionFixture();
+  const trustedArtifact = join(distDirectory, BUILD_ASSET_FIXTURE.home);
+  const siblingHardLink = join(temporaryDirectory, 'test-owned-hardlink.js');
+  try {
+    await verifyDistribution({ distDirectory });
+    await link(trustedArtifact, siblingHardLink);
+    await assert.rejects(
+      verifyDistribution({ distDirectory }),
+      /hard-linked-artifact: assets\/home-AAA111aa\.js/,
+    );
+    await unlink(siblingHardLink);
+    await verifyDistribution({ distDirectory });
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
 
 test('the final distribution contract accepts only the exact fixed and reachable logical assets', () => {
   const { outputNames, pageHtmlById } = trustedDistributionFixture();
