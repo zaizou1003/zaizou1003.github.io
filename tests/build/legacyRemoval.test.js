@@ -4,12 +4,14 @@ import test from 'node:test';
 import {
   APPROVED_DEPENDENCIES,
   APPROVED_DEV_DEPENDENCIES,
+  APPROVED_GITATTRIBUTES_SOURCE,
   FORBIDDEN_DELETION_PATHS,
   PROHIBITED_DEPENDENCIES,
   extractImportSpecifiers,
   normalizeRepositoryPath,
   validateDependencyManifest,
   validateEntryContract,
+  validateGitattributesContract,
   validateGitignoreContract,
   validateLegacyPathInventory,
   validateLegacyRemovalState,
@@ -31,6 +33,7 @@ const cleanSourceFiles = Object.freeze({
   'src/pages/ProjectsPage.jsx': "import React from 'react';\nexport function ProjectsPage() { return null; }\n",
 });
 const cleanWorkingPaths = Object.freeze([
+  '.gitattributes',
   '.gitignore',
   'index.html',
   'package.json',
@@ -63,6 +66,7 @@ function createCleanFixture(overrides = {}) {
     workingPaths: [...cleanWorkingPaths],
     trackedPaths: [...cleanWorkingPaths],
     deletedTrackedPaths: [],
+    gitattributesSource: APPROVED_GITATTRIBUTES_SOURCE,
     gitignoreSource: '/build/\ndist/\n/private/\n',
     packageManifest: cleanPackageManifest,
     sourceFiles: cleanSourceFiles,
@@ -80,8 +84,9 @@ test('the final clean fixture passes through the production aggregate validator'
 });
 
 test('the exact deletion manifest is unique and every path is rejected by production rules', async (context) => {
-  assert.equal(FORBIDDEN_DELETION_PATHS.length, 68);
-  assert.equal(new Set(FORBIDDEN_DELETION_PATHS).size, 68);
+  assert.equal(FORBIDDEN_DELETION_PATHS.length, 67);
+  assert.equal(new Set(FORBIDDEN_DELETION_PATHS).size, 67);
+  assert.equal(FORBIDDEN_DELETION_PATHS.includes('.gitattributes'), false);
   for (const path of FORBIDDEN_DELETION_PATHS) {
     await context.test(path, () => {
       assert.throws(
@@ -90,6 +95,45 @@ test('the exact deletion manifest is unique and every path is rejected by produc
       );
     });
   }
+});
+
+test('the production attributes contract accepts only the exact deterministic LF policy', async (context) => {
+  assert.deepEqual(validateGitattributesContract(APPROVED_GITATTRIBUTES_SOURCE, cleanWorkingPaths), {
+    deterministicLf: true,
+  });
+
+  const invalidSources = [
+    ['CRLF content', '* text=auto eol=lf\r\n'],
+    ['additional rule', '* text=auto eol=lf\n*.svg text\n'],
+    ['modified rule', '* text eol=lf\n'],
+    ['negated rule', '* text=auto eol=lf\n!*.js text\n'],
+    ['former GLB LFS rule', '* text=auto eol=lf\n*.glb filter=lfs diff=lfs merge=lfs -text\n'],
+  ];
+
+  for (const [label, source] of invalidSources) {
+    await context.test(label, () => {
+      assert.throws(
+        () => validateGitattributesContract(source, cleanWorkingPaths),
+        /gitattributes-contract/,
+      );
+    });
+  }
+
+  const pathsWithoutAttributes = cleanWorkingPaths.filter((path) => path !== '.gitattributes');
+  assert.throws(
+    () =>
+      validateLegacyRemovalState(
+        createCleanFixture({
+          workingPaths: pathsWithoutAttributes,
+          existingPaths: pathsWithoutAttributes,
+        }),
+      ),
+    /missing-gitattributes/,
+  );
+  assert.throws(
+    () => validateGitattributesContract(undefined, cleanWorkingPaths),
+    /malformed-gitattributes/,
+  );
 });
 
 test('generic legacy and private asset path classes fail closed', async (context) => {

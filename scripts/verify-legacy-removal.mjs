@@ -8,7 +8,6 @@ const execFileAsync = promisify(execFile);
 const defaultRepositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 export const FORBIDDEN_DELETION_PATHS = Object.freeze([
-  '.gitattributes',
   'build/404.html',
   'build/asset-manifest.json',
   'build/banner.png',
@@ -77,6 +76,8 @@ export const FORBIDDEN_DELETION_PATHS = Object.freeze([
   'src/pages/TermsandConditions.jsx',
   'src/themes/default.js',
 ]);
+
+export const APPROVED_GITATTRIBUTES_SOURCE = '* text=auto eol=lf\n';
 
 export const APPROVED_DEPENDENCIES = Object.freeze({
   react: '19.2.8',
@@ -361,6 +362,14 @@ export function validateGitignoreContract(source) {
   return Object.freeze({ buildIgnored: true, distIgnored: true });
 }
 
+export function validateGitattributesContract(source, workingPaths) {
+  if (typeof source !== 'string') throw contractError('malformed-gitattributes');
+  const working = normalizePathList(workingPaths, 'gitattributes-working-paths');
+  if (!working.includes('.gitattributes')) throw contractError('missing-gitattributes');
+  if (source !== APPROVED_GITATTRIBUTES_SOURCE) throw contractError('gitattributes-contract');
+  return Object.freeze({ deterministicLf: true });
+}
+
 function extractModuleScripts(html, path) {
   if (typeof html !== 'string') throw contractError('malformed-html-entry', path);
   return [...html.matchAll(/<script\b(?=[^>]*\btype=["']module["'])[^>]*\bsrc=["']([^"']+)["'][^>]*><\/script>/gi)].map(
@@ -413,6 +422,7 @@ export function validateLegacyRemovalState({
   workingPaths,
   trackedPaths,
   deletedTrackedPaths = [],
+  gitattributesSource,
   gitignoreSource,
   packageManifest,
   sourceFiles,
@@ -423,11 +433,12 @@ export function validateLegacyRemovalState({
     throw contractError('malformed-entry-sources');
   }
   const paths = validateLegacyPathInventory({ workingPaths, trackedPaths, deletedTrackedPaths });
+  const attributes = validateGitattributesContract(gitattributesSource, workingPaths);
   const ignores = validateGitignoreContract(gitignoreSource);
   const dependencies = validateDependencyManifest(packageManifest);
   const imports = validateSourceImports({ sourceFiles, existingPaths });
   const entries = validateEntryContract(entrySources);
-  return Object.freeze({ status: 'verified', paths, ignores, dependencies, imports, entries });
+  return Object.freeze({ status: 'verified', paths, attributes, ignores, dependencies, imports, entries });
 }
 
 function assertWithinRoot(root, candidate) {
@@ -501,6 +512,7 @@ export async function verifyRepositoryLegacyRemoval({
     gitPathList(resolvedRoot, ['ls-files', '-z'], exec),
     gitPathList(resolvedRoot, ['ls-files', '--deleted', '-z'], exec),
   ]);
+  if (!workingPaths.includes('.gitattributes')) throw contractError('missing-gitattributes');
   const sourcePaths = workingPaths.filter(
     (path) => path.startsWith('src/') && SCRIPT_EXTENSIONS.has(extname(path)),
   );
@@ -519,6 +531,7 @@ export async function verifyRepositoryLegacyRemoval({
     workingPaths,
     trackedPaths,
     deletedTrackedPaths,
+    gitattributesSource: await readRegularText(resolvedRoot, '.gitattributes'),
     gitignoreSource: await readRegularText(resolvedRoot, '.gitignore'),
     packageManifest,
     sourceFiles: Object.fromEntries(sourceEntries),
