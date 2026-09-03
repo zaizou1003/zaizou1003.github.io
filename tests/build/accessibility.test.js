@@ -96,19 +96,16 @@ test('Oxlint configuration and package command lock the exact approved scope', a
   assert.equal(config.options.reportUnusedDisableDirectives, 'error');
   assert.equal(config.settings['jsx-a11y'].components.LinkButton, 'a');
   for (const rule of REQUIRED_RULES) assert.ok(config.rules[rule], `Missing ${rule}`);
-  for (const ignored of [
-    '/build/**',
-    '/dist/**',
+  assert.deepEqual(config.ignorePatterns, [
     '/.prerender/**',
+    '/build/**',
     '/coverage/**',
+    '/dist/**',
     '/node_modules/**',
     '/private/**',
-    '/src/components/Projects/**',
-    '/src/App.js',
-    '/src/FirebaseConfig.js',
-  ]) {
-    assert.ok(config.ignorePatterns.includes(ignored), `Missing ignored boundary ${ignored}`);
-  }
+    '/.env*',
+  ]);
+  assert.equal(config.ignorePatterns.some((ignored) => ignored.startsWith('/src/')), false);
   assert.ok(config.overrides.some(({ env }) => env?.browser === true));
   assert.ok(config.overrides.some(({ env }) => env?.node === true));
 });
