@@ -1,0 +1,35 @@
+.explorer {
+  padding-block: 0 var(--section-space);
+}
+
+.heading {
+  max-width: var(--reading-max);
+  margin-block-end: var(--space-8);
+}
+
+.heading > p:last-child {
+  color: var(--color-text-muted);
+}
+
+.eyebrow {
+  margin-block-end: var(--space-3);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.list {
+  display: grid;
+  min-width: 0;
+  gap: var(--grid-gap-wide);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list > li {
+  min-width: 0;
+}
